@@ -9,7 +9,7 @@ import {
   type RunLot,
 } from "../lib/position-value";
 
-const ANTHROPIC = "2yqHN6bCAJZHngGuRnuTKBB43F2S6GGLAJqgwZ4WVXT1";
+const ANTHROPIC = "3MFLVffGvwRVpo4iGvALruCwZmQQvSDuwyFqgiaknZ5V";
 
 function prices(
   marks: Record<string, number | null>,
@@ -249,4 +249,54 @@ test("runLots without a RunPrice account are legacy", () => {
   );
   assert.equal(v2[0].units, 2.5);
   assert.equal(v2[0].buyPrice, 80);
+
+  const priced = runLots(
+    [
+      {
+        runIndex: 3,
+        ts: 9,
+        mints: [ANTHROPIC],
+        amountsUsd: [2.5],
+      },
+    ],
+    new Map([
+      [
+        3,
+        {
+          mints: [{ toBase58: () => ANTHROPIC }],
+          prices: [BigInt(80_000_000)],
+          priceDecimals: [6],
+          usdcSpentEach: BigInt(50_000_000),
+        },
+      ],
+    ]),
+  );
+  assert.equal(priced[0].units, 2.5);
+  assert.equal(priced[0].usdcCost, 50);
+  assert.equal(priced[0].buyPrice, 80);
+
+  const fallback = runLots(
+    [
+      {
+        runIndex: 3,
+        ts: 9,
+        mints: [ANTHROPIC],
+        amountsUsd: [2],
+      },
+    ],
+    new Map([
+      [
+        3,
+        {
+          mints: [{ toBase58: () => ANTHROPIC }],
+          prices: [BigInt(0)],
+          priceDecimals: [6],
+          usdcSpentEach: BigInt(100_000_000),
+        },
+      ],
+    ]),
+  );
+  assert.equal(fallback[0].units, 2);
+  assert.equal(fallback[0].usdcCost, 100);
+  assert.equal(fallback[0].buyPrice, 50);
 });

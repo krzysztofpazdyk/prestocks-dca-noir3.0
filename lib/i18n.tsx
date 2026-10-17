@@ -12,12 +12,13 @@ import {
 
 export type Locale = "pl" | "en";
 
-export const LOCALE_STORAGE_KEY = "predca_locale";
+export const LOCALE_STORAGE_KEY = "noir3.predca_locale";
 export const DEFAULT_LOCALE: Locale = "pl";
 
 type Dict = Record<string, string>;
 
 const pl: Dict = {
+  "nav.brand": "noir 3.0",
   "nav.overview": "Overview",
   "nav.settings": "Ustawienia",
   "nav.history": "Historia",
@@ -98,13 +99,13 @@ const pl: Dict = {
   "tile.usdcWallet": "USDC (portfel)",
   "tile.portfolioPreStock": "Wartość portfela PreStock",
   "tile.portfolioHint":
-    "Wartość portfela PreStock: vault USDC + suma wartości akcji (Devnet: 1 token unit = 1 USD). USDC w portfelu osobno.",
+    "Wartość portfela PreStock: vault USDC + wartość tokenów (zakupy v2 po cenie rynkowej; starsze 1:1 po koszcie). USDC w portfelu osobno.",
 
   "holdings.titleOnChain": "Alokacja holdings (on-chain ATAs)",
   "holdings.titleOffline": "Alokacja holdings (offline)",
   "holdings.titleDisconnected": "Alokacja holdings",
   "holdings.emptyConnected":
-    "Brak niezerowych sald mock PreStock w ATA — wykonaj simulate_buy lub czekaj na mint.",
+    "Brak niezerowych sald mock PreStock w ATA — wykonaj zakup (simulate_buy_v2) lub czekaj na mint.",
   "holdings.empty": "Brak holdings.",
   "holdings.emptyDisconnected": "Podłącz portfel, by zobaczyć holdings on-chain.",
   "holdings.allocation": "alokacja",
@@ -129,7 +130,7 @@ const pl: Dict = {
   "lastPurchase.titleOffline": "Ostatni zakup (offline)",
   "lastPurchase.titleDisconnected": "Ostatni zakup",
   "lastPurchase.emptyConnected":
-    "Brak RunRecord — wykonaj pierwszy zakup (simulate_buy).",
+    "Brak RunRecord — wykonaj pierwszy zakup (simulate_buy_v2).",
   "lastPurchase.empty": "Brak zapisanych zakupów.",
   "lastPurchase.emptyDisconnected": "Podłącz portfel, by zobaczyć zakupy on-chain.",
   "lastPurchase.date": "Data:",
@@ -162,6 +163,8 @@ const pl: Dict = {
     "Za mało USDC w vault (on-chain): {have} < {need}.",
   "msg.purchaseOk":
     "Zakup on-chain OK · sig {sig}… · ${amount} z vault → {tokens}",
+  "buy.preview": "≈ {legs}",
+  "buy.previewLeg": "{tokens} {name} po {price}",
   "msg.purchaseFail":
     "Zakup nieudany — szczegóły w sekcji Predca powyżej (czerwony komunikat).",
   "msg.purchasePending":
@@ -221,6 +224,15 @@ const pl: Dict = {
   "auto.error.predca.6006": "Mint nie zgadza się z kontem w instrukcji.",
   "auto.error.predca.6007": "Duplikaty mintów w top-3.",
   "auto.error.predca.6008": "Za wcześnie: odczekaj 7 dni od ostatniego zakupu (TooSoon).",
+  "auto.error.predca.6009": "Brak ceny dla tokena — keeper jeszcze jej nie ustawił.",
+  "auto.error.predca.6010":
+    "Cena tokena jest nieaktualna. Keeper odświeża ceny co kilka minut — spróbuj za chwilę.",
+  "auto.error.predca.6011": "Nieprawidłowa cena tokena.",
+  "auto.error.predca.6012": "Nieprawidłowe parametry ceny.",
+  "auto.error.predca.6013": "Zmiana ceny jest zbyt duża.",
+  "auto.error.predca.6014": "Przepełnienie obliczeń ceny.",
+  "auto.error.predca.6015":
+    "Kwota tokena zaokrągliła się do zera — cena jest zbyt wysoka względem budżetu.",
   "auto.status.enablePending":
     "Keeper jeszcze kończy włączanie. Zaczekaj — nie wysyłaj drugiego włączenia.",
   "auto.status.enableUnknown":
@@ -310,7 +322,7 @@ const pl: Dict = {
   "history.connectHint":
     "Podłącz portfel, aby zobaczyć historię zakupów (RunRecord) z Predca.",
   "history.noRuns":
-    "Brak RunRecord on-chain — wykonaj pierwszy zakup (simulate_buy) lub poczekaj na record_run.",
+    "Brak RunRecord on-chain — wykonaj pierwszy zakup (simulate_buy_v2) lub poczekaj na record_run.",
   "history.notReady":
     "Predca nie jest gotowe — wpłać USDC na Overview, potem pojawią się przebiegi.",
   "history.fetchError": "Nie udało się pobrać historii",
@@ -374,6 +386,7 @@ const pl: Dict = {
 };
 
 const en: Dict = {
+  "nav.brand": "noir 3.0",
   "nav.overview": "Overview",
   "nav.settings": "Settings",
   "nav.history": "History",
@@ -454,13 +467,13 @@ const en: Dict = {
   "tile.usdcWallet": "USDC (wallet)",
   "tile.portfolioPreStock": "PreStock portfolio value",
   "tile.portfolioHint":
-    "PreStock portfolio value: vault USDC + sum of stock values (Devnet: 1 token unit = 1 USD). Wallet USDC is separate.",
+    "PreStock portfolio value: vault USDC + token value (v2 buys at the market price; older 1:1 buys at cost). Wallet USDC is separate.",
 
   "holdings.titleOnChain": "Holdings allocation (on-chain ATAs)",
   "holdings.titleOffline": "Holdings allocation (offline)",
   "holdings.titleDisconnected": "Holdings allocation",
   "holdings.emptyConnected":
-    "No non-zero mock PreStock ATA balances — run simulate_buy or wait for mint.",
+    "No non-zero mock PreStock ATA balances — run a buy (simulate_buy_v2) or wait for the mint.",
   "holdings.empty": "No holdings.",
   "holdings.emptyDisconnected": "Connect wallet to see on-chain holdings.",
   "holdings.allocation": "allocation",
@@ -485,7 +498,7 @@ const en: Dict = {
   "lastPurchase.titleOffline": "Last purchase (offline)",
   "lastPurchase.titleDisconnected": "Last purchase",
   "lastPurchase.emptyConnected":
-    "No RunRecord — make the first purchase (simulate_buy).",
+    "No RunRecord — make the first purchase (simulate_buy_v2).",
   "lastPurchase.empty": "No saved purchases.",
   "lastPurchase.emptyDisconnected": "Connect wallet to see on-chain purchases.",
   "lastPurchase.date": "Date:",
@@ -518,6 +531,8 @@ const en: Dict = {
     "Not enough USDC in vault (on-chain): {have} < {need}.",
   "msg.purchaseOk":
     "On-chain purchase OK · sig {sig}… · ${amount} from vault → {tokens}",
+  "buy.preview": "≈ {legs}",
+  "buy.previewLeg": "{tokens} {name} at {price}",
   "msg.purchaseFail":
     "Purchase failed — see details in the Predca section above (red message).",
   "msg.purchasePending":
@@ -577,6 +592,15 @@ const en: Dict = {
   "auto.error.predca.6006": "The mint does not match the account.",
   "auto.error.predca.6007": "The top 3 contains duplicate mints.",
   "auto.error.predca.6008": "Too soon. Wait 7 days since the last purchase.",
+  "auto.error.predca.6009": "No price for this token yet — the keeper has not set it.",
+  "auto.error.predca.6010":
+    "The token price is stale. The keeper refreshes prices every few minutes — try again shortly.",
+  "auto.error.predca.6011": "The token price is invalid.",
+  "auto.error.predca.6012": "The price parameters are invalid.",
+  "auto.error.predca.6013": "The price jump is too large.",
+  "auto.error.predca.6014": "The price math overflowed.",
+  "auto.error.predca.6015":
+    "The token amount rounded to zero. The price is too high for this budget.",
   "auto.status.enablePending":
     "The keeper is still finishing enable. Wait — don't send a second enable.",
   "auto.status.enableUnknown":
@@ -666,7 +690,7 @@ const en: Dict = {
   "history.connectHint":
     "Connect your wallet to see purchase history (RunRecord) from Predca.",
   "history.noRuns":
-    "No on-chain RunRecord yet — make a purchase (simulate_buy) or wait for record_run.",
+    "No on-chain RunRecord yet — make a purchase (simulate_buy_v2) or wait for record_run.",
   "history.notReady":
     "Predca is not ready — deposit USDC on Overview, then runs will appear.",
   "history.fetchError": "Couldn't load history",

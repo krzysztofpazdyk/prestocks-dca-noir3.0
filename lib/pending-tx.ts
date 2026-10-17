@@ -20,7 +20,7 @@ export const EXPIRY_MARGIN_BLOCKS = 10;
 export const EXPIRY_TIME_FALLBACK_MS = 5 * 60_000;
 export const UNRESOLVED_POLL_MS = 10_000;
 export const UNRESOLVED_POLL_MAX_MS = 3 * 60_000;
-export const PENDING_TX_LS_PREFIX = "predca.pendingTx.v1.";
+export const PENDING_TX_LS_PREFIX = "noir3.predca.pendingTx.v1.";
 export const PENDING_TX_MAX_AGE_MS = 24 * 60 * 60_000;
 export const PENDING_TX_MAX_RECORDS = 5;
 

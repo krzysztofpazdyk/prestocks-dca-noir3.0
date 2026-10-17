@@ -138,8 +138,11 @@ function parseExpiresFromMessage(message: string): number {
   return m ? Number(m[1]) : 0;
 }
 
+/** Origin-shared with noir/noir2. Do not read the unprefixed keeper session key. */
+export const KEEPER_SESSION_PREFIX = "noir3.predca.keeper.session.";
+
 function sessionStorageKey(owner: string): string {
-  return `predca.keeper.session.${owner.trim()}`;
+  return `${KEEPER_SESSION_PREFIX}${owner.trim()}`;
 }
 
 function readStoredSession(owner: string): SessionCached | null {
@@ -190,7 +193,7 @@ function removeStoredSession(owner?: string): void {
   try {
     if (owner) localStorage.removeItem(sessionStorageKey(owner));
     else {
-      const prefix = "predca.keeper.session.";
+      const prefix = KEEPER_SESSION_PREFIX;
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
         if (k && k.startsWith(prefix)) localStorage.removeItem(k);

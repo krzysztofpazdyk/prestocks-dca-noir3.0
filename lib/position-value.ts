@@ -34,8 +34,15 @@ export type RunLotSource = {
 
 export type DecodedLots = {
   mints: { toBase58(): string }[];
-  units: Array<bigint | number>;
-  pricesE6: Array<bigint | number>;
+  /** Older in-memory shape: token base units on the price account. */
+  units?: Array<bigint | number>;
+  /** Older in-memory shape: USD price scaled 1e6. */
+  pricesE6?: Array<bigint | number>;
+  /** predca 3.0 RunPrice.prices — USD per whole token, scaled by priceDecimals. */
+  prices?: Array<bigint | number>;
+  priceDecimals?: Array<number>;
+  /** Raw USDC (6 decimals) spent on each leg. */
+  usdcSpentEach?: bigint | number;
 };
 
 export type TokenAmount = { name: string; amount: number };
@@ -69,7 +76,20 @@ function num(v: bigint | number): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** RunRecord legs + optional RunPrice. No decoded account → legacy (units null). */
+function isPricedRun(dec: DecodedLots): boolean {
+  return (
+    dec.prices != null ||
+    dec.priceDecimals != null ||
+    dec.usdcSpentEach != null
+  );
+}
+
+/**
+ * RunRecord legs + optional RunPrice.
+ * No decoded account → legacy 1:1 (units null, amounts are both tokens and USDC).
+ * predca 3.0: RunRecord.amounts are minted token base units. USDC spent and the
+ * buy price come from RunPrice (on-chain price, else usdc / amount).
+ */
 export function runLots(
   runs: RunLotSource[],
   decoded: ReadonlyMap<number, DecodedLots | null>,
@@ -82,16 +102,38 @@ export function runLots(
       const devnetMint = run.mints[i] ?? "";
       if (!devnetMint) continue;
       const name = nameByMint(devnetMint) ?? devnetMint;
-      const usdcCost = Number(run.amountsUsd[i] ?? 0);
+      const recordUi = Number(run.amountsUsd[i] ?? 0);
+      let usdcCost = Number.isFinite(recordUi) ? recordUi : 0;
       let units: number | null = null;
       let buyPrice: number | null = null;
       const decMint = dec?.mints[i]?.toBase58();
       if (dec && decMint === devnetMint) {
-        const rawUnits = num(dec.units[i] ?? 0);
-        const rawPx = num(dec.pricesE6[i] ?? 0);
-        if (Number.isFinite(rawUnits) && rawUnits >= 0) units = rawUnits / 1e6;
-        if (Number.isFinite(rawPx) && rawPx > 0) buyPrice = rawPx / 1e6;
-        if (units == null) buyPrice = null;
+        if (isPricedRun(dec)) {
+          const spentRaw = num(dec.usdcSpentEach ?? 0);
+          if (Number.isFinite(spentRaw) && spentRaw > 0) usdcCost = spentRaw / 1e6;
+          if (Number.isFinite(recordUi) && recordUi >= 0) units = recordUi;
+          const rawPx = num(dec.prices?.[i] ?? 0);
+          const decimals = dec.priceDecimals?.[i] ?? 6;
+          if (
+            Number.isFinite(rawPx) &&
+            rawPx > 0 &&
+            Number.isInteger(decimals) &&
+            decimals >= 0 &&
+            decimals <= 18
+          ) {
+            buyPrice = rawPx / 10 ** decimals;
+          }
+          if ((buyPrice == null || buyPrice <= 0) && units != null && units > 0 && usdcCost > 0) {
+            buyPrice = usdcCost / units;
+          }
+          if (units == null) buyPrice = null;
+        } else {
+          const rawUnits = num(dec.units?.[i] ?? 0);
+          const rawPx = num(dec.pricesE6?.[i] ?? 0);
+          if (Number.isFinite(rawUnits) && rawUnits >= 0) units = rawUnits / 1e6;
+          if (Number.isFinite(rawPx) && rawPx > 0) buyPrice = rawPx / 1e6;
+          if (units == null) buyPrice = null;
+        }
       }
       lots.push({
         name,

@@ -19,6 +19,13 @@ const PREDCA_NAME_TO_CODE: Record<string, number> = {
   mintmismatch: 6006,
   duplicatemints: 6007,
   toosoon: 6008,
+  pricemissing: 6009,
+  pricestale: 6010,
+  invalidprice: 6011,
+  invalidpriceparams: 6012,
+  pricejumptoolarge: 6013,
+  mathoverflow: 6014,
+  zerotokenamount: 6015,
 };
 
 const STATUS_ERROR_PREFIXES = ["Auto-zakup nieudany:", "Auto-buy failed:"];

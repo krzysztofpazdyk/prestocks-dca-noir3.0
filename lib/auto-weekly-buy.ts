@@ -193,11 +193,14 @@ export function shouldCommitAutoBuyEnabled(ran: {
   return Boolean(ran.names && ran.names.length >= 3);
 }
 
-export const LS_AUTO_WEEKLY_BUY = "prestocks.autoWeeklyBuy";
-export const LS_AUTO_WEEKLY_META = "prestocks.autoWeeklyBuy.meta";
-export const LS_WEEKLY_BUDGET = "predca_weekly_budget_usd";
-/** Set once when the unscoped budget key is discarded. Later wallets must not read it. */
-const LS_WEEKLY_BUDGET_MIGRATED = "predca_weekly_budget_usd.__migrated";
+export const LS_AUTO_WEEKLY_BUY = "noir3.prestocks.autoWeeklyBuy";
+export const LS_AUTO_WEEKLY_META = "noir3.prestocks.autoWeeklyBuy.meta";
+export const LS_WEEKLY_BUDGET = "noir3.predca_weekly_budget_usd";
+/**
+ * Set once when the unscoped noir3 budget key is discarded.
+ * Does not read noir / noir2 keys on the shared Pages origin.
+ */
+const LS_WEEKLY_BUDGET_MIGRATED = "noir3.predca_weekly_budget_usd.__migrated";
 
 export type AutoBuyMeta = {
   lastAttemptMs: number;

@@ -14,8 +14,8 @@ import {
   runPricePda,
 } from "../lib/run-price";
 
-const PROGRAM = new PublicKey("HajLzgcp6fyHVgVLFtwujnU53re47PSMJcQZZes8ZvbU");
-const ANTHROPIC = new PublicKey("2yqHN6bCAJZHngGuRnuTKBB43F2S6GGLAJqgwZ4WVXT1");
+const PROGRAM = new PublicKey("Eb3TFLeYi3dHZwoKCBvvUpx3gMnP2XdmMXX3rstUpdwC");
+const ANTHROPIC = new PublicKey("3MFLVffGvwRVpo4iGvALruCwZmQQvSDuwyFqgiaknZ5V");
 
 function account(opts: {
   disc?: Buffer;
@@ -24,9 +24,11 @@ function account(opts: {
   wallet: PublicKey;
   runIndex?: bigint;
   mints?: PublicKey[];
-  units?: bigint[];
   prices?: bigint[];
+  decimals?: number[];
   ts?: bigint[];
+  usdc?: bigint;
+  version?: number;
   bump?: number;
 }) {
   const len = opts.len ?? RUN_PRICE_LEN;
@@ -38,17 +40,18 @@ function account(opts: {
   buf.writeBigUInt64LE(opts.runIndex ?? BigInt(7), 40);
   const mints = opts.mints ?? [ANTHROPIC, ANTHROPIC, ANTHROPIC];
   mints.forEach((mint, i) => buf.set(mint.toBytes(), 48 + i * 32));
-  buf.writeBigUInt64LE(BigInt(50_000_000), 144);
-  (opts.units ?? [BigInt(2_000_000), BigInt(0), BigInt(0)]).forEach((n, i) =>
-    buf.writeBigUInt64LE(n, 152 + i * 8),
-  );
   (opts.prices ?? [BigInt(80_000_000), BigInt(0), BigInt(0)]).forEach((n, i) =>
-    buf.writeBigUInt64LE(n, 176 + i * 8),
+    buf.writeBigUInt64LE(n, 144 + i * 8),
   );
+  (opts.decimals ?? [6, 6, 6]).forEach((n, i) => {
+    buf[168 + i] = n;
+  });
   (opts.ts ?? [BigInt(1_700_000_000), BigInt(0), BigInt(-5)]).forEach((n, i) =>
-    buf.writeBigInt64LE(n, 200 + i * 8),
+    buf.writeBigInt64LE(n, 171 + i * 8),
   );
-  buf[224] = opts.bump ?? 9;
+  buf.writeBigUInt64LE(opts.usdc ?? BigInt(50_000_000), 195);
+  buf[203] = opts.version ?? 1;
+  buf[204] = opts.bump ?? 9;
   return { data: buf, owner: opts.program ?? PROGRAM };
 }
 
@@ -70,9 +73,11 @@ test("decodes a valid RunPrice account", () => {
     account({
       wallet,
       runIndex: BigInt(4),
-      units: [BigInt(2_500_000), BigInt(1), BigInt(2)],
       prices: [BigInt(80_000_000), BigInt(3), BigInt(4)],
+      decimals: [6, 2, 0],
       ts: [BigInt(11), BigInt(12), BigInt(-5)],
+      usdc: BigInt(50_000_000),
+      version: 2,
       bump: 4,
     }),
     PROGRAM,
@@ -81,10 +86,12 @@ test("decodes a valid RunPrice account", () => {
   assert.equal(decoded.owner.toBase58(), wallet.toBase58());
   assert.equal(decoded.runIndex, 4);
   assert.equal(decoded.mints[0].toBase58(), ANTHROPIC.toBase58());
-  assert.equal(decoded.usdcEach, BigInt(50_000_000));
-  assert.equal(decoded.units[0], BigInt(2_500_000));
-  assert.equal(decoded.pricesE6[0], BigInt(80_000_000));
+  assert.equal(decoded.usdcSpentEach, BigInt(50_000_000));
+  assert.equal(decoded.prices[0], BigInt(80_000_000));
+  assert.equal(decoded.priceDecimals[0], 6);
+  assert.equal(decoded.priceDecimals[1], 2);
   assert.equal(decoded.priceTs[2], BigInt(-5));
+  assert.equal(decoded.version, 2);
   assert.equal(decoded.bump, 4);
 });
 

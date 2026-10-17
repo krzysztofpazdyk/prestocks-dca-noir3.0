@@ -20,7 +20,7 @@ export type PortfolioState = {
   lastPurchase: Purchase;
 };
 
-export const PORTFOLIO_STORAGE_KEY = "predca_mock_portfolio_v1";
+export const PORTFOLIO_STORAGE_KEY = "noir3.predca_mock_portfolio_v1";
 
 const NEW_HOLDING_COLORS = ["#14b8a6", "#8b5cf6", "#22d3ee"] as const;
 

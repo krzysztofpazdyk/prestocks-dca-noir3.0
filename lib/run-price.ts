@@ -1,46 +1,42 @@
 /**
  * Optional v2 RunPrice account. Missing or invalid → caller treats the lot as legacy.
- * Decoder is manual: idl/predca.json is unchanged until the keeper brief lands.
+ * RunPrice is not in the IDL. Layout (borsh, no padding) after the 8-byte
+ * discriminator sha256("account:RunPrice")[0..8]:
+ * owner pubkey · run_index u64 · mints [pubkey;3] · prices [u64;3] ·
+ * price_decimals [u8;3] · price_ts [i64;3] · usdc_spent_each u64 · version u8 · bump u8
+ * = 197 bytes, 205 with the discriminator.
  *
- * Layout after the 8-byte discriminator sha256("account:RunPrice")[0..8]:
- * owner pubkey · run_index u64 · mints [pubkey;3] · usdc_each u64 ·
- * units [u64;3] · prices_e6 [u64;3] · price_ts [i64;3] · bump u8
- * = 217 bytes, 225 with the discriminator.
+ * `usdc_spent_each` is one raw USDC amount (6 decimals) spent on each of the
+ * three legs. `prices[i]` is USD per one whole token, scaled by 10^price_decimals[i].
+ * Token amounts live on RunRecord.amounts, not here.
+ * Lot price prefers the on-chain price; otherwise usdc spent / token amount.
  */
 
 import { BN } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { programId } from "@/lib/predca";
+import { programId, runPricePda } from "@/lib/predca";
+
+export { runPricePda };
 
 /** sha256("account:RunPrice").subarray(0, 8) */
 export const RUN_PRICE_DISC = Uint8Array.from([
   164, 96, 163, 110, 17, 106, 42, 211,
 ]);
 
-export const RUN_PRICE_LEN = 225;
+export const RUN_PRICE_LEN = 205;
 
 export type DecodedRunPrice = {
   owner: PublicKey;
   runIndex: number;
   mints: [PublicKey, PublicKey, PublicKey];
-  usdcEach: bigint;
-  units: [bigint, bigint, bigint];
-  pricesE6: [bigint, bigint, bigint];
+  prices: [bigint, bigint, bigint];
+  priceDecimals: [number, number, number];
   priceTs: [bigint, bigint, bigint];
+  /** Raw USDC (6 decimals) spent on each leg. */
+  usdcSpentEach: bigint;
+  version: number;
   bump: number;
 };
-
-export function runPricePda(
-  owner: PublicKey,
-  runIndex: number | BN,
-  program: PublicKey = programId(),
-): [PublicKey, number] {
-  const idx = BN.isBN(runIndex) ? runIndex : new BN(runIndex);
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("run_price"), owner.toBuffer(), idx.toArrayLike(Buffer, "le", 8)],
-    program,
-  );
-}
 
 function readU64(data: Uint8Array, off: number): bigint {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(off, true);
@@ -88,28 +84,62 @@ export function decodeRunPriceAccount(
     readPubkey(data, off + 64),
   ];
   off += 96;
-  const usdcEach = readU64(data, off);
-  off += 8;
-  const units: [bigint, bigint, bigint] = [
+  const prices: [bigint, bigint, bigint] = [
     readU64(data, off),
     readU64(data, off + 8),
     readU64(data, off + 16),
   ];
   off += 24;
-  const pricesE6: [bigint, bigint, bigint] = [
-    readU64(data, off),
-    readU64(data, off + 8),
-    readU64(data, off + 16),
-  ];
-  off += 24;
+  const priceDecimals: [number, number, number] = [data[off], data[off + 1], data[off + 2]];
+  off += 3;
   const priceTs: [bigint, bigint, bigint] = [
     readI64(data, off),
     readI64(data, off + 8),
     readI64(data, off + 16),
   ];
   off += 24;
+  const usdcSpentEach = readU64(data, off);
+  off += 8;
+  const version = data[off];
+  off += 1;
   const bump = data[off];
-  return { owner, runIndex, mints, usdcEach, units, pricesE6, priceTs, bump };
+  return {
+    owner,
+    runIndex,
+    mints,
+    prices,
+    priceDecimals,
+    priceTs,
+    usdcSpentEach,
+    version,
+    bump,
+  };
+}
+
+/** USD per one whole token. Null when the raw price is zero or the scale is unusable. */
+export function scaledUsdPrice(raw: bigint | number, decimals: number): number | null {
+  const n = typeof raw === "bigint" ? Number(raw) : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) return null;
+  const px = n / 10 ** decimals;
+  return Number.isFinite(px) && px > 0 ? px : null;
+}
+
+/**
+ * Lot price fallback: USDC spent on the leg / token amount.
+ * Both inputs are raw base units (6 decimals), so the ratio is USD per whole token.
+ */
+export function lotPriceFromSpend(
+  usdcSpentRaw: bigint | number,
+  tokenBaseUnits: bigint | number,
+): number | null {
+  const usdc = typeof usdcSpentRaw === "bigint" ? Number(usdcSpentRaw) : Number(usdcSpentRaw);
+  const tokens = typeof tokenBaseUnits === "bigint" ? Number(tokenBaseUnits) : Number(tokenBaseUnits);
+  if (!Number.isFinite(usdc) || !Number.isFinite(tokens) || usdc <= 0 || tokens <= 0) {
+    return null;
+  }
+  const px = usdc / tokens;
+  return Number.isFinite(px) && px > 0 ? px : null;
 }
 
 export type RunPriceFetch = {

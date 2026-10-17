@@ -6,10 +6,10 @@
  * A saved empty string is an explicit clear and is not overwritten.
  */
 
-export const LS_TYPESAFE = "prestocks.TYPESAFE_API_KEY";
-export const LS_XAI = "prestocks.XAI_API_KEY";
-export const SS_PRODUCTS = "prestocks.session.products";
-export const SS_RANK = "prestocks.session.rank";
+export const LS_TYPESAFE = "noir3.prestocks.TYPESAFE_API_KEY";
+export const LS_XAI = "noir3.prestocks.XAI_API_KEY";
+export const SS_PRODUCTS = "noir3.prestocks.session.products";
+export const SS_RANK = "noir3.prestocks.session.rank";
 
 type BrowserStorage = {
   getItem(key: string): string | null;
