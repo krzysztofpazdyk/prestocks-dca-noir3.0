@@ -7,7 +7,7 @@
 import { canonicalName } from "@/lib/jup-prices";
 import { MINTS, NEAR_IPO_NAMES, type PrestocksProduct } from "@/lib/universe";
 
-export const COMPANY_DATA_KEY = "prestocks.companyData.v1";
+export const COMPANY_DATA_KEY = "noir3.prestocks.companyData.v1";
 export const COMPANY_DATA_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const FUTURE_SLACK_MS = 60 * 60 * 1000;
 const NEAR_IPO_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;

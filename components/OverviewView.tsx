@@ -158,6 +158,7 @@ export function OverviewView() {
   const [rankError, setRankError] = useState<string | null>(null);
   const [purchaseMsg, setPurchaseMsg] = useState<string | null>(null);
   const [purchaseTone, setPurchaseTone] = useState<"ok" | "fail" | "pending">("ok");
+  const [buyPreview, setBuyPreview] = useState<string | null>(null);
   /** Sync lock across setWeeklyBudget and simulateBuy. A second Kup returns immediately. */
   const buyInFlightRef = useRef(false);
   const [buyInFlight, setBuyInFlight] = useState(false);
@@ -285,6 +286,7 @@ export function OverviewView() {
       amountUsd: lp.amountUsd,
       tokens: lp.tokens,
       perTokenUsd: lp.perTokenUsd,
+      tokenAmounts: lp.tokenAmounts,
       signature: `run#${lp.runIndex}`,
     };
   })();
@@ -504,10 +506,10 @@ export function OverviewView() {
       }
 
       const tokenNames = top3.slice(0, 3).map((r) => r.name);
-      // LS is SoT for intended amount (sync on-chain before simulate_buy when dirty).
+      // LS is SoT for intended amount (sync on-chain before simulate_buy_v2 when dirty).
       const intendedAmount = resolvePurchaseAmount(predca.weeklyBudgetUsd, ownerBase58);
 
-      // Prefer on-chain simulate_buy when Predca is ready.
+      // Prefer on-chain simulate_buy_v2 when Predca is ready.
       if (onChainReady) {
         if (
           availableVaultUsdc == null ||
@@ -523,7 +525,7 @@ export function OverviewView() {
           return;
         }
 
-        // simulate_buy spends on-chain weeklyBudgetUsdc — sync LS → chain first.
+        // simulate_buy_v2 spends on-chain weeklyBudgetUsdc — sync LS → chain first.
         const lsAmount = readWeeklyBudgetUsd(DEFAULT_SETTINGS.weeklyAmountUsd, ownerBase58);
         if (budgetsDiffer(lsAmount, predca.weeklyBudgetUsd)) {
           setPurchaseMsg(t("msg.updatingBudget"));
@@ -546,13 +548,12 @@ export function OverviewView() {
         const sig = await predca.simulateBuy(tokenNames);
         if (sig) {
           setPurchaseTone("ok");
-          setPurchaseMsg(
-            t("msg.purchaseOk", {
-              sig: sig.slice(0, 8),
-              amount: intendedAmount.toFixed(2),
-              tokens: tokenNames.join(" · "),
-            }),
-          );
+          const okText = t("msg.purchaseOk", {
+            sig: sig.slice(0, 8),
+            amount: intendedAmount.toFixed(2),
+            tokens: tokenNames.join(" · "),
+          });
+          setPurchaseMsg(buyPreview ? `${okText} ${buyPreview}` : okText);
         } else if (!markPendingPurchase()) {
           const err = predca.lastTxError();
           if (err) {
@@ -609,6 +610,40 @@ export function OverviewView() {
   const restored = generated ? null : parseRankSession(sessionSnap.raw, rankPrefsKey());
   const active = generated ?? (restored ? rankView(restored.rank, locale) : null);
   const top3 = active?.top3 ?? [];
+  const top3Names = top3.map((row) => row.name).join("\u0001");
+  useEffect(() => {
+    const names = top3Names ? top3Names.split("\u0001") : [];
+    if (!connected || !onChainReady || names.length < 3) {
+      setBuyPreview(null);
+      return;
+    }
+    let cancel = false;
+    void predca.previewBuy(names).then((legs) => {
+      if (cancel) return;
+      if (legs.length === 0) {
+        setBuyPreview(null);
+        return;
+      }
+      setBuyPreview(
+        t("buy.preview", {
+          legs: legs
+            .map((leg) =>
+              t("buy.previewLeg", {
+                tokens: leg.tokens.toLocaleString(locale === "pl" ? "pl-PL" : "en-US", {
+                  maximumFractionDigits: 6,
+                }),
+                name: leg.name,
+                price: fmtUsdAmount(leg.priceUsd, locale) ?? "",
+              }),
+            )
+            .join(" · "),
+        }),
+      );
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [connected, onChainReady, top3Names, predca.previewBuy, locale, t]);
   const top3Title = active?.title ?? null;
   const top3Subtitle = active?.subtitle ?? null;
   const premiumBasis = active?.premiumBasis ?? null;
@@ -1055,15 +1090,26 @@ export function OverviewView() {
               {t("predca.lastRun")}
             </p>
             <ul className="grid gap-1 sm:grid-cols-3">
-              {predca.lastRun.mints.map((m, i) => (
+              {predca.lastRun.mints.map((m, i) => {
+                const fill = predca.runFills.find(
+                  (row) => row.runIndex === predca.lastRun!.runIndex.toString(),
+                );
+                const slot = fill?.slots?.[i] ?? null;
+                const tokens = rawToDollars(predca.lastRun!.amounts[i]);
+                const tokenText = tokens.toLocaleString(
+                  locale === "pl" ? "pl-PL" : "en-US",
+                  { maximumFractionDigits: 6 },
+                );
+                return (
                 <li
                   key={i}
                   className="rounded border border-[#1e2633] bg-[#0c0e12] px-2 py-1.5 mono-num"
                 >
-                  {shortPk(m)} ·{" "}
-                  {formatUsd(rawToDollars(predca.lastRun!.amounts[i]))} USDC
+                  {shortPk(m)} · {tokenText}
+                  {slot ? ` · $${formatUsd(slot.price)}` : ""}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         )}
@@ -1273,6 +1319,9 @@ export function OverviewView() {
             ) : null}
             {dupNotice("buy", resolvePurchaseAmount(predca.weeklyBudgetUsd, ownerBase58))}
             {dupInfoNotice("buy", resolvePurchaseAmount(predca.weeklyBudgetUsd, ownerBase58))}
+            {buyPreview && (
+              <p className="mt-3 text-[10px] text-[#8b95a8]">{buyPreview}</p>
+            )}
             {purchaseMsg && (
               <p
                 className={`mt-3 break-all rounded border px-3 py-2 text-xs ${
@@ -1323,14 +1372,24 @@ export function OverviewView() {
                   </p>
                   <p>
                     <span className="text-[#8b95a8]">{t("lastPurchase.bought")} </span>
-                    {displayLastPurchase.tokens.join(" · ")}
+                    {displayLastPurchase.tokens
+                      .map((name, i) => {
+                        const amt = displayLastPurchase.tokenAmounts?.[i];
+                        if (amt == null || !Number.isFinite(amt)) return name;
+                        const text = amt.toLocaleString(
+                          locale === "pl" ? "pl-PL" : "en-US",
+                          { maximumFractionDigits: 6 },
+                        );
+                        return `${name} × ${text}`;
+                      })
+                      .join(" · ")}
                   </p>
                 </>
               )}
             </div>
             <span
               className="pointer-events-none absolute bottom-2 right-3 mono-num text-[10px] tabular-nums text-[#5c6578]"
-              title="PreStocks DCA Noir"
+              title="noir 3.0"
             >
               v{APP_VERSION}
             </span>

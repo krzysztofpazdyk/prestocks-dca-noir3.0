@@ -74,6 +74,12 @@ import {
 import { Transaction, type PublicKey } from "@solana/web3.js";
 import { fetchJupPrices, emptyJupPrices, type JupPrices } from "@/lib/jup-prices";
 import {
+  fetchPriceFeedsCached,
+  mintedBaseUnits,
+  usdPerToken,
+  wholeTokensFromBase,
+} from "@/lib/price-feed";
+import {
   buildPositions,
   portfolioValue,
   runLots,
@@ -108,7 +114,9 @@ import {
   isRunAlreadyExists,
   ownerUsdcAta,
   parseAnchorError,
+  priceFeedPda,
   rawToDollars,
+  runPricePda,
   RUN_INDEX_TAKEN_MSG,
   usdcMintOrNull,
   type RunRecordData,
@@ -121,8 +129,16 @@ export type OnChainLastPurchase = {
   amountUsd: number;
   tokens: string[];
   perTokenUsd: number;
+  /** Minted token amounts (RunRecord.amounts / 1e6). */
+  tokenAmounts: number[];
   runIndex: number;
   ts: number;
+};
+
+export type BuyPreviewLeg = {
+  name: string;
+  tokens: number;
+  priceUsd: number;
 };
 
 function mintHint(): string {
@@ -148,9 +164,11 @@ function runSources(runs: RunRecordData[]): RunLotSource[] {
   }));
 }
 
-function runToLastPurchase(run: RunRecordData): OnChainLastPurchase {
-  const amounts = run.amounts.map((a) => rawToDollars(a));
-  const amountUsd = amounts.reduce((s, a) => s + a, 0);
+function runToLastPurchase(
+  run: RunRecordData,
+  dec: DecodedRunPrice | null,
+): OnChainLastPurchase {
+  const tokenAmounts = run.amounts.map((a) => rawToDollars(a));
   const tokens = run.mints.map((m) => {
     const named = nameByMint(m);
     if (named) return named;
@@ -167,11 +185,20 @@ function runToLastPurchase(run: RunRecordData): OnChainLastPurchase {
     "toNumber" in run.runIndex
       ? (run.runIndex as BN).toNumber()
       : Number(run.runIndex ?? 0);
+  const spent =
+    dec && dec.usdcSpentEach > BigInt(0) ? Number(dec.usdcSpentEach) / 1e6 : null;
+  const amountUsd =
+    spent != null
+      ? spent * Math.max(tokenAmounts.length, 1)
+      : tokenAmounts.reduce((sum, amount) => sum + amount, 0);
+  const perTokenUsd =
+    spent != null ? spent : tokens.length > 0 ? amountUsd / tokens.length : 0;
   return {
     date: formatTs(run.ts),
     amountUsd,
     tokens,
-    perTokenUsd: tokens.length > 0 ? amountUsd / tokens.length : 0,
+    perTokenUsd,
+    tokenAmounts,
     runIndex,
     ts,
   };
@@ -560,6 +587,7 @@ function usePredcaImpl() {
         runs.map((run) => ({
           runIndex: bnNum(run.runIndex),
           mints: run.mints.map((m) => (typeof m === "string" ? m : m.toBase58())),
+          tokenAmounts: run.amounts.map((a) => rawToDollars(a)),
         })),
         runPriceByIndex,
       ),
@@ -586,8 +614,14 @@ function usePredcaImpl() {
   }, [owner, vaultUsdc, positions]);
 
   const lastPurchaseOnChain = useMemo(
-    () => (lastRun ? runToLastPurchase(lastRun) : null),
-    [lastRun],
+    () =>
+      lastRun
+        ? runToLastPurchase(
+            lastRun,
+            runPriceByIndex.get(bnNum(lastRun.runIndex)) ?? null,
+          )
+        : null,
+    [lastRun, runPriceByIndex],
   );
 
   async function confirmLanded(signature: string): Promise<void> {
@@ -1343,8 +1377,39 @@ function usePredcaImpl() {
   }
 
   /**
-   * On-chain simulate_buy (live on Devnet Predca).
-   * Debits vault USDC only; mints top-3 mock PreStock tokens to owner ATAs.
+   * Approx tokens at the cached PriceFeed. Empty when a feed is missing.
+   * Display only — the chain still checks staleness on simulate_buy_v2.
+   */
+  const previewBuy = useCallback(async (tokenNames: string[]): Promise<BuyPreviewLeg[]> => {
+    if (!owner || !mint) return [];
+    const { mints, names, missing } = resolveTop3Mints(tokenNames);
+    if (missing.length > 0 || mints.length !== 3) return [];
+    const budget = config ? rawToDollars(config.weeklyBudgetUsdc) : null;
+    if (budget == null || !(budget > 0)) return [];
+    const usdcEach = BigInt(Math.floor((budget * 1e6) / 3));
+    let feeds;
+    try {
+      feeds = await fetchPriceFeedsCached(connection, mints);
+    } catch {
+      return [];
+    }
+    const legs: BuyPreviewLeg[] = [];
+    for (let i = 0; i < 3; i++) {
+      const feed = feeds[i];
+      if (!feed) continue;
+      const priceUsd = usdPerToken(feed.price, feed.priceDecimals);
+      const tokens = wholeTokensFromBase(
+        mintedBaseUnits(usdcEach, feed.price, feed.priceDecimals),
+      );
+      if (priceUsd == null || !(tokens > 0)) continue;
+      legs.push({ name: names[i] ?? "", tokens, priceUsd });
+    }
+    return legs;
+  }, [owner, mint, config, connection]);
+
+  /**
+   * On-chain simulate_buy_v2 (priced buy). Debits vault USDC only and mints
+   * floor(usdc/price) of each mock PreStock to the owner ATAs.
    */
   async function simulateBuy(tokenNames: string[]): Promise<string | null> {
     if (!program || !owner || !mint) {
@@ -1395,6 +1460,7 @@ function usePredcaImpl() {
       const budget = rawToDollars(freshConfig.weeklyBudgetUsdc);
       const amountEach = Math.floor((budget * 1e6) / 3) / 1e6;
       const totalDebit = amountEach * 3;
+      const usdcEachRaw = BigInt(Math.floor(budget * 1e6 / 3));
       const vaultNow =
         vaultUsdc != null
           ? vaultUsdc
@@ -1442,14 +1508,19 @@ function usePredcaImpl() {
           },
         );
 
-        // Anchor 0.32 resolves PDAs (vault, mint_auth, ATAs, run_record) + signers.
+        // Anchor resolves PDAs that have seeds (vault, mint_auth, ATAs, run_record).
+        // price_feed_* and run_price have no IDL seeds and must be passed.
         return program.methods
-          .simulateBuy(new BN(runIndex), mints, Array.from({ length: 32 }, () => 0))
+          .simulateBuyV2(new BN(runIndex), mints, Array.from({ length: 32 }, () => 0))
           .accounts({
             usdcMint: mint,
             mintA: mints[0],
             mintB: mints[1],
             mintC: mints[2],
+            priceFeedA: priceFeedPda(mints[0])[0],
+            priceFeedB: priceFeedPda(mints[1])[0],
+            priceFeedC: priceFeedPda(mints[2])[0],
+            runPrice: runPricePda(owner, runIndex)[0],
           })
           .rpc();
       };
@@ -1469,6 +1540,30 @@ function usePredcaImpl() {
         }
       };
 
+      let preview = "";
+      try {
+        const feeds = await fetchPriceFeedsCached(connection, mints);
+        const bits: string[] = [];
+        for (let i = 0; i < names.length; i++) {
+          const feed = feeds[i];
+          if (!feed) continue;
+          const priceUsd = usdPerToken(feed.price, feed.priceDecimals);
+          const tokens = wholeTokensFromBase(
+            mintedBaseUnits(usdcEachRaw, feed.price, feed.priceDecimals),
+          );
+          if (priceUsd == null || !(tokens > 0)) continue;
+          const tokenText = tokens.toLocaleString("pl-PL", { maximumFractionDigits: 6 });
+          const pxText = priceUsd.toLocaleString("pl-PL", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+          bits.push(`≈ ${tokenText} ${names[i]} po $${pxText}`);
+        }
+        if (bits.length > 0) preview = ` ${bits.join(" · ")}`;
+      } catch {
+        preview = "";
+      }
+
       return await withTx(async () => {
         try {
           return await submitAndRemember(nextIndex);
@@ -1486,7 +1581,7 @@ function usePredcaImpl() {
             throw e2;
           }
         }
-      }, `Zakup on-chain (simulate_buy): $${totalDebit.toFixed(2)} z vault → ⅓ na ${names.join(" · ")}`, {
+      }, `Zakup on-chain (simulate_buy_v2): $${totalDebit.toFixed(2)} z vault → ⅓ na ${names.join(" · ")}.${preview}`, {
         kind: "buy",
         amountUsd: totalDebit,
       });
@@ -1561,6 +1656,7 @@ function usePredcaImpl() {
     withdrawUsdc,
     setWeeklyBudget,
     simulateBuy,
+    previewBuy,
   };
 }
 

@@ -80,7 +80,7 @@ export function parseWeeklyDraft(s: string): WeeklyDraft {
 }
 
 /** Session-only amount typed before a wallet connects. Not the retired global LS key. */
-export const WEEKLY_DRAFT_SESSION_KEY = "predca_weekly_budget_usd.__draft";
+export const WEEKLY_DRAFT_SESSION_KEY = "noir3.predca_weekly_budget_usd.__draft";
 
 export type WeeklyAdoption = {
   value: number | null;

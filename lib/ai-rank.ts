@@ -18,7 +18,7 @@ const JEV_PROXY_HINT =
 
 function jevProxyUrl(): string {
   const base = (
-    process.env.NEXT_PUBLIC_BASE_PATH || "/prestocks-dca-noir2.0"
+    process.env.NEXT_PUBLIC_BASE_PATH || "/prestocks-dca-noir3.0"
   ).replace(/\/$/, "");
   if (typeof window !== "undefined") {
     return `${window.location.origin}${base}/api/jev/`;

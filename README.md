@@ -1,23 +1,23 @@
-> **Pages mirror v4.40:** This repository is a GitHub Pages deploy mirror of [`prestocks-dca-noir`](https://github.com/krzysztofpazdyk/prestocks-dca-noir) (same app, `basePath` `/prestocks-dca-noir2.0`). Deploy Pages ręcznie, po review — sam PR nie publikuje strony.
+> **noir 3.0** — kopia UI pod program **predca 3.0** (priced buys v2). `basePath` `/prestocks-dca-noir3.0`. Deploy Pages ręcznie, po review — sam PR nie publikuje strony. Ta kopia nie zawiera workflow Pages.
 
-# PreStocks UI — Noir
+# PreStocks UI — noir 3.0
 
-Interfejs **PreStocks Weekly DCA** w stylu trading desk: głęboki charcoal, neonowy teal/violet, liczby monospace.
+Interfejs **PreStocks Weekly DCA** w stylu trading desk: głęboki charcoal, neonowy teal/violet, liczby monospace. Wersja UI **v5.0.0**.
 
-Podłączony do programu Anchor **predca** (custody USDC + config + RunRecord). Sieć: **Solana localnet lub devnet** (wybierana przez `NEXT_PUBLIC_RPC_URL`) — bez seedów / kluczy prywatnych w repo.
+Podłączony do programu Anchor **predca 3.0** (custody USDC + config + RunRecord + PriceFeed). Zakup ręczny woła `simulate_buy_v2`: ilość tokena to `floor(usdc / price)` w jednostkach bazowych (6 decimals), nie 1 token za 1 USD. Sieć: **Solana localnet lub devnet** (wybierana przez `NEXT_PUBLIC_RPC_URL`) — bez seedów / kluczy prywatnych w repo.
 
 ## Wymagania
 
 - Node.js 20+
 - npm
 - `solana-test-validator` (CLI Solana) — do transakcji on-chain
-- Program **predca** wdrożony na localnet (`HajLzgcp6fyHVgVLFtwujnU53re47PSMJcQZZes8ZvbU`)
+- Program **predca 3.0** (`Eb3TFLeYi3dHZwoKCBvvUpx3gMnP2XdmMXX3rstUpdwC`)
 
 ## Instalacja
 
 ```bash
-cd /workspace/prestocks-ui-noir
-cp .env.example .env.local   # uzupełnij NEXT_PUBLIC_USDC_MINT po utworzeniu mintu
+cd ~/prestocks-dca-noir3.0
+cp .env.example .env.local
 npm install
 ```
 
@@ -48,19 +48,22 @@ Mint **nie jest zahardcodowany** w programie — to konto w instrukcjach. Bez `N
 4. Dev UI:
 
 ```bash
-cd /workspace/prestocks-ui-noir
+cd ~/prestocks-dca-noir3.0
 npm run dev
 ```
 
-Aplikacja: [http://localhost:3000](http://localhost:3000).
+Aplikacja: [http://localhost:3000/prestocks-dca-noir3.0](http://localhost:3000/prestocks-dca-noir3.0) (`basePath`).
 
 Zmienne (patrz `.env.example`):
 
 | Zmienna | Domyślnie |
 |---------|-----------|
 | `NEXT_PUBLIC_RPC_URL` | `http://127.0.0.1:8899` |
-| `NEXT_PUBLIC_PREDCA_PROGRAM_ID` | `HajLzgcp6fyHVgVLFtwujnU53re47PSMJcQZZes8ZvbU` |
-| `NEXT_PUBLIC_USDC_MINT` | *(puste — ustaw po create-token)* |
+| `NEXT_PUBLIC_PREDCA_PROGRAM_ID` | `Eb3TFLeYi3dHZwoKCBvvUpx3gMnP2XdmMXX3rstUpdwC` |
+| `NEXT_PUBLIC_USDC_MINT` | `3xtTBfHRf8AKEmhbFYqRoXfi9RaxxiqG9YfifjCjD4qm` (mock devnet) |
+| `NEXT_PUBLIC_DCA_API_URL` | *(puste — wstrzykiwane tylko przy buildzie)* |
+| `NEXT_PUBLIC_KEEPER_URL` | *(puste — wstrzykiwane tylko przy buildzie)* |
+| `NEXT_PUBLIC_BASE_PATH` | `/prestocks-dca-noir3.0` |
 
 IDL jest skopiowane do `idl/predca.json` (aplikacja self-contained — bez runtime importu z `/workspace/predca`).
 
@@ -92,7 +95,7 @@ Build **nie wymaga** żywego validatora (tylko typy + IDL).
 
 ## BYOK (Bring Your Own Key)
 
-W **Ustawieniach** pole TypeSafe może być już wypełnione kluczem demo. Wklejasz własny, żeby go zastąpić. Zapis w **localStorage** (`prestocks.TYPESAFE_API_KEY`) — klient nadal wysyła ten klucz do `/rank`. Serwer nie dostaje osobnego fallbacku.
+W **Ustawieniach** pole TypeSafe może być już wypełnione kluczem demo. Wklejasz własny, żeby go zastąpić. Zapis w **localStorage** (`noir3.prestocks.TYPESAFE_API_KEY`) — klient nadal wysyła ten klucz do `/rank`. Serwer nie dostaje osobnego fallbacku.
 
 Build z `NEXT_PUBLIC_TYPESAFE_DEFAULT_KEY` wpisuje tę wartość do localStorage **tylko przy pierwszej wizycie** (klucza jeszcze nie ma). Zapis własnego klucza zostaje. Wyczyszczenie pola i zapis zostawia pusty string — Jev nie wraca, dopóki znowu nie zapiszesz klucza. Build bez tej zmiennej zachowuje się jak wcześniej: puste Ustawienia, brak Jev.
 
@@ -100,19 +103,52 @@ Build z `NEXT_PUBLIC_TYPESAFE_DEFAULT_KEY` wpisuje tę wartość do localStorage
 
 | Klucz | Opis |
 |-------|------|
-| `TYPESAFE_API_KEY` | Jev — demo albo własny klucz w `prestocks.TYPESAFE_API_KEY`. Jest → etykieta źródła „BYOK · Jev”. Pusto → ranking metryczny. |
-| `XAI_API_KEY` | Grok — **opcjonalny**; pusty = metrics→Jev bez LLM (`prestocks.XAI_API_KEY`) |
+| `TYPESAFE_API_KEY` | Jev — demo albo własny klucz w `noir3.prestocks.TYPESAFE_API_KEY`. Jest → etykieta źródła „BYOK · Jev”. Pusto → ranking metryczny. |
+| `XAI_API_KEY` | Grok — **opcjonalny**; pusty = metrics→Jev bez LLM (`noir3.prestocks.XAI_API_KEY`) |
 
 ## GitHub Pages (static / DEVNET)
 
-Static export deploys to:
-**https://krzysztofpazdyk.github.io/prestocks-dca-noir2.0/**
+Docelowy adres (osobny od noir / noir 2.0 na tym samym originie):
+**https://krzysztofpazdyk.github.io/prestocks-dca-noir3.0/**
 
-- Build uses `output: 'export'` with `basePath` / `assetPrefix` `/prestocks-dca-noir2.0`.
-- Production env (`.env.production`) points at **Solana DEVNET** only — public `NEXT_PUBLIC_*` values, no private keys. `NEXT_PUBLIC_TYPESAFE_DEFAULT_KEY` zostaw puste w repozytorium. Przed buildem Pages ustaw tę zmienną w środowisku builda (sekret Actions albo lokalnie). Bez niej demo nie wpisuje klucza. Wartość i tak widać w JS strony.
-- CI: `.github/workflows/pages.yml` builds on push to `main` and uploads `out/` to GitHub Pages.
+- Build uses `output: 'export'` with `basePath` / `assetPrefix` `/prestocks-dca-noir3.0`.
+- Production env (`.env.production`) points at **Solana DEVNET** and predca 3.0. `NEXT_PUBLIC_DCA_API_URL` i `NEXT_PUBLIC_KEEPER_URL` są puste w repo — wartość jest wstrzykiwana tylko przy buildzie. Puste URL jest poprawne: klient nie woła keepera.
+- `NEXT_PUBLIC_TYPESAFE_DEFAULT_KEY` zostaw puste w repozytorium. Przed buildem Pages ustaw tę zmienną w środowisku builda. Bez niej demo nie wpisuje klucza. Wartość i tak widać w JS strony.
+- Ta kopia nie ma `.github/workflows/pages.yml`. Deploy jest ręczny.
 
-### Phantom / Solflare / Privy
+## Klucze storage (`noir3.`)
+
+localStorage, sessionStorage i cache na `krzysztofpazdyk.github.io` są wspólne dla noir, noir 2.0 i noir 3.0. Ta aplikacja **nie czyta** starych kluczy (bez migracji). Każdy własny klucz ma prefiks `noir3.`:
+
+| Klucz | Gdzie |
+|-------|--------|
+| `noir3.prestocks.TYPESAFE_API_KEY` | localStorage, BYOK Jev |
+| `noir3.prestocks.XAI_API_KEY` | localStorage, BYOK Grok |
+| `noir3.prestocks.session.products` | sessionStorage, katalog produktów |
+| `noir3.prestocks.session.rank` | sessionStorage, ostatni ranking |
+| `noir3.prestocks.deadlineInvalid` | localStorage |
+| `noir3.prestocks.ipoPremiumMatters` | localStorage |
+| `noir3.prestocks.buyDespiteIpo` | localStorage |
+| `noir3.prestocks.exclusions` | localStorage |
+| `noir3.prestocks.companyData.v1` | localStorage |
+| `noir3.prestocks.autoWeeklyBuy` | localStorage (`.{owner}` gdy jest portfel) |
+| `noir3.prestocks.autoWeeklyBuy.meta` | localStorage (`.{owner}`) |
+| `noir3.predca_weekly_budget_usd` | localStorage (`.{owner}`) |
+| `noir3.predca_weekly_budget_usd.__migrated` | localStorage, znacznik odrzucenia niescopowanego budżetu |
+| `noir3.predca_weekly_budget_usd.__draft` | sessionStorage |
+| `noir3.predca_mock_portfolio_v1` | localStorage |
+| `noir3.predca.pendingTx.v1.{owner}` | localStorage |
+| `noir3.predca.jupPrices.v1` | localStorage |
+| `noir3.predca_locale` | localStorage, PL/EN |
+| `noir3.predca.keeper.session.{owner}` | localStorage (sesja keepera) |
+
+Brak IndexedDB, ciasteczek aplikacji i service workera. Klucze Privy (`privy-*`, ciasteczka SDK) należą do SDK i nie dostają prefiksu `noir3.`.
+
+## Changelog
+
+- noir 3.0 = predca 3.0 (priced buys v2), first version
+
+## Phantom / Solflare / Privy
 
 W Phantom lub Solflare ustaw sieć na **Devnet** przed łączeniem. UI Pages jest na `https://api.devnet.solana.com` — Mainnet nie zadziała z tym deployem.
 

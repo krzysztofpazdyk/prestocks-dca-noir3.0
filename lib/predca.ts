@@ -16,14 +16,14 @@ import type { Predca } from "@/types/predca";
 import { textKeepingSignature } from "@/lib/vault-follow-up";
 
 export const DEFAULT_PROGRAM_ID =
-  "HajLzgcp6fyHVgVLFtwujnU53re47PSMJcQZZes8ZvbU";
+  "Eb3TFLeYi3dHZwoKCBvvUpx3gMnP2XdmMXX3rstUpdwC";
 
 export const USDC_DECIMALS = 6;
 export const USDC_FACTOR = 1_000_000;
 
-/** Devnet mock USDC mint used by Predca (see .env.production). */
+/** Devnet mock USDC mint used by predca 3.0 (see .env.production). */
 export const MOCK_USDC_MINT =
-  "99UbouJx2ZTLThQkqxrQGLZkDAYAn9vv8n6qnQh5f4Sw";
+  "3xtTBfHRf8AKEmhbFYqRoXfi9RaxxiqG9YfifjCjD4qm";
 
 export const PREDCA_ERROR_PL: Record<number, string> = {
   6000: "Brak uprawnień (Unauthorized).",
@@ -35,6 +35,13 @@ export const PREDCA_ERROR_PL: Record<number, string> = {
   6006: "Mint nie zgadza się z kontem w instrukcji.",
   6007: "Duplikaty mintów w top-3.",
   6008: "Za wcześnie: odczekaj 7 dni od ostatniego zakupu (TooSoon).",
+  6009: "Brak ceny dla tokena — keeper jeszcze jej nie ustawił.",
+  6010: "Cena tokena jest nieaktualna. Keeper odświeża ceny co kilka minut — spróbuj za chwilę.",
+  6011: "Nieprawidłowa cena tokena.",
+  6012: "Nieprawidłowe parametry ceny.",
+  6013: "Zmiana ceny jest zbyt duża.",
+  6014: "Przepełnienie obliczeń ceny.",
+  6015: "Kwota tokena zaokrągliła się do zera — cena jest zbyt wysoka względem budżetu.",
 };
 
 export function programId(): PublicKey {
@@ -159,6 +166,33 @@ export function runRecordPda(
   return PublicKey.findProgramAddressSync(
     [Buffer.from("run"), owner.toBuffer(), idx.toArrayLike(Buffer, "le", 8)],
     programId(),
+  );
+}
+
+/** PriceFeed PDA. Seeds [b"price", mint]. Pass it explicitly — the IDL does not derive it. */
+export function priceFeedPda(
+  mint: PublicKey,
+  program: PublicKey = programId(),
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("price"), mint.toBuffer()],
+    program,
+  );
+}
+
+/**
+ * RunPrice PDA. Seeds [b"run_price", owner, run_index u64 LE].
+ * The program creates the account. Callers must pass it explicitly.
+ */
+export function runPricePda(
+  owner: PublicKey,
+  runIndex: number | BN,
+  program: PublicKey = programId(),
+): [PublicKey, number] {
+  const idx = BN.isBN(runIndex) ? runIndex : new BN(runIndex);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("run_price"), owner.toBuffer(), idx.toArrayLike(Buffer, "le", 8)],
+    program,
   );
 }
 
@@ -326,7 +360,7 @@ export type RunRecordScan = {
 
 /**
  * Load RunRecords for owner by scanning PDA indices in batches.
- * Stops at the first missing account (simulate_buy / execute_buy use the
+ * Stops at the first missing account (simulate_buy_v2 / execute_buy_v2 use the
  * next free index). `scanCap` is an exclusive upper bound, not an inclusive
  * last index.
  */

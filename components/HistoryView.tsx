@@ -23,8 +23,14 @@ function mintLabel(mint: RunRecordData["mints"][number]): string {
   return shortPk(mint, 6);
 }
 
-function runBudgetUsd(run: RunRecordData): number {
-  return run.amounts.reduce((s, a) => s + rawToDollars(a), 0);
+function runBudgetUsd(
+  run: RunRecordData,
+  slots: Array<{ usdc?: number } | null> | null | undefined,
+): number {
+  if (slots?.some((slot) => slot?.usdc != null)) {
+    return run.mints.reduce((sum, _, i) => sum + (slots[i]?.usdc ?? 0), 0);
+  }
+  return run.amounts.reduce((sum, amount) => sum + rawToDollars(amount), 0);
 }
 
 function fmtUnits(n: number): string {
@@ -101,12 +107,15 @@ export function HistoryView() {
       {showRuns && (
         <ul className="space-y-3">
           {[...predca.runs].reverse().map((run) => {
-            const budget = runBudgetUsd(run);
             const fill = predca.runFills.find(
               (row) => row.runIndex === run.runIndex.toString(),
             );
+            const budget = runBudgetUsd(run, fill?.slots);
             const names = run.mints.map((m) => mintLabel(m));
-            const usdcEach = run.amounts.map((a) => rawToDollars(a));
+            const usdcEach = run.mints.map((_, i) => {
+              const spent = fill?.slots?.[i]?.usdc;
+              return spent != null ? spent : rawToDollars(run.amounts[i]);
+            });
             const pnl = runPnl(
               fill?.slots ?? null,
               usdcEach,
@@ -162,7 +171,7 @@ export function HistoryView() {
                     >
                       <span className="text-[#c5cedb]">{mintLabel(m)}</span>
                       <span className="mono-num ml-2 text-[#8b95a8]">
-                        ${formatUsd(rawToDollars(run.amounts[i]))}
+                        ${formatUsd(usdcEach[i])}
                       </span>
                       {slot ? (
                         <span className="mono-num mt-0.5 block text-[10px] text-[#8b95a8]">

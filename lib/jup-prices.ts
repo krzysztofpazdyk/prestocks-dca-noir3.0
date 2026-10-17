@@ -7,7 +7,7 @@
 import { MINTS } from "@/lib/universe";
 
 export const JUP_PRICE_DEFAULT = "https://lite-api.jup.ag/price/v3";
-export const JUP_CACHE_KEY = "predca.jupPrices.v1";
+export const JUP_CACHE_KEY = "noir3.predca.jupPrices.v1";
 export const JUP_RETRY_MS = 2000;
 export const JUP_TIMEOUT_MS = 8000;
 

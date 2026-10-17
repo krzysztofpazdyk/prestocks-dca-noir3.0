@@ -5,7 +5,7 @@
 import { mintByName } from "@/lib/devnet-mock-mints";
 import { MINTS, XAI_MINT } from "@/lib/universe";
 
-export const LS_EXCLUSIONS = "prestocks.exclusions";
+export const LS_EXCLUSIONS = "noir3.prestocks.exclusions";
 /** Product decision: xAI stays out of the universe and out of the typed field. */
 export const FIXED_EXCLUSIONS = ["xAI"] as const;
 
