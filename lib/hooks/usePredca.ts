@@ -27,6 +27,7 @@ import {
   buyRefreshSettled,
   chainPollDecision,
   commitRefreshRead,
+  postTxReadAttempt,
   refreshCallDecision,
   loadJupPricesInBackground,
   refreshPrices as refreshPricesOnly,
@@ -87,7 +88,7 @@ import {
 } from "@/lib/price-feed";
 import {
   buildPositions,
-  portfolioUsdKnown,
+  portfolioUsdForWallet,
   runLots,
   valueWeights,
   type RunLotSource,
@@ -133,6 +134,12 @@ import {
   type RunRecordData,
   type TokenBalanceRead,
 } from "@/lib/predca";
+import {
+  isRpcTimeout,
+  readTimeoutMs,
+  refreshDeadline,
+  withTimeout,
+} from "@/lib/rpc-timeout";
 
 export type { PredcaStatus } from "@/lib/predca-status";
 
@@ -152,6 +159,8 @@ export type OnChainLastPurchase = {
 type RefreshCommit = {
   snapshot: PredcaSnapshot;
   prices: Map<number, DecodedRunPrice | null>;
+  /** This pass timed out and kept the previous snapshot. Not a settled read. */
+  softTimeout?: boolean;
 };
 
 export type BuyPreviewLeg = {
@@ -325,6 +334,7 @@ function usePredcaImpl() {
     rpcError,
     balanceWarning,
     priceWarning,
+    rpcWarning,
   } = snapshot;
   const [loading, setLoading] = useState(false);
   const [unresolvedTxs, setUnresolvedTxs] = useState<PendingTxRecord[]>([]);
@@ -540,16 +550,39 @@ function usePredcaImpl() {
       if (!still()) {
         return null;
       }
-      const solPromise = fetchSolBalance(connection, owner);
+      const deadline = refreshDeadline(Date.now());
+      const solPromise = withTimeout(
+        fetchSolBalance(connection, owner),
+        readTimeoutMs(deadline),
+        "sol",
+      );
       markHandled(solPromise);
-      const ownerBalPromise = mint
-        ? fetchOwnerUsdcBalance(connection, owner, mint)
-        : Promise.resolve(null);
+      const ownerBalPromise = withTimeout(
+        mint
+          ? fetchOwnerUsdcBalance(connection, owner, mint)
+          : Promise.resolve(null),
+        readTimeoutMs(deadline),
+        "ownerUsdc",
+      );
       markHandled(ownerBalPromise);
-      const tokensPromise = fetchMockTokenBalances(
-        connection,
-        owner,
-        allMockMints(),
+      const tokenMs = readTimeoutMs(deadline);
+      const tokensPromise = withTimeout(
+        fetchMockTokenBalances(connection, owner, allMockMints(), {
+          timeoutMs: tokenMs,
+        }),
+        tokenMs,
+        "tokenBalances",
+      ).then(
+        (read) => read,
+        (err: unknown) => {
+          if (!isRpcTimeout(err)) throw err;
+          const unknown: TokenBalanceRead = {
+            balances: [],
+            status: "unknown",
+            detail: "balances.warning",
+          };
+          return unknown;
+        },
       );
       markHandled(tokensPromise);
 
@@ -573,13 +606,29 @@ function usePredcaImpl() {
         );
       }
 
-      const cfg = await fetchUserConfig(program, owner);
+      const cfg = await fetchUserConfig(
+        program,
+        owner,
+        readTimeoutMs(deadline),
+      );
       if (!still()) return null;
 
       if (cfg) {
-        const [bal, records, ownerBal, sol, tokenRead] = await Promise.all([
+        const vaultPromise = withTimeout(
           fetchVaultBalance(connection, owner),
+          readTimeoutMs(deadline),
+          "vault",
+        );
+        markHandled(vaultPromise);
+        const runsPromise = withTimeout(
           fetchRunRecords(program, owner),
+          readTimeoutMs(deadline),
+          "runs",
+        );
+        markHandled(runsPromise);
+        const [bal, records, ownerBal, sol, tokenRead] = await Promise.all([
+          vaultPromise,
+          runsPromise,
           ownerBalPromise,
           solPromise,
           tokensPromise,
@@ -591,6 +640,7 @@ function usePredcaImpl() {
             connection,
             owner,
             records.map((r) => bnNum(r.runIndex)),
+            readTimeoutMs(deadline),
           );
         } catch {
           priceRead = { map: new Map(), ok: false };
@@ -628,16 +678,21 @@ function usePredcaImpl() {
       );
     } catch (e) {
       if (!still()) return null;
+      // A hung read is a soft miss: keep the previous snapshot, no rpcError,
+      // so manual buy stays available. Any other throw is still a hard miss.
+      const softTimeout = isRpcTimeout(e);
       const commit = commitRefreshRead({
         prevSnapshot: snapshotRef.current,
         prevPrices: runPriceRef.current,
-        outcome: { ok: false, error: rpcReadFailure(e) },
+        outcome: softTimeout
+          ? { ok: false, soft: true }
+          : { ok: false, error: rpcReadFailure(e) },
         prices: { map: new Map(), ok: false },
         runMeta: [],
         nowMs: Date.now(),
       });
       if (mayPublish()) publishRef.current(commit);
-      return commit;
+      return softTimeout ? { ...commit, softTimeout: true } : commit;
     } finally {
       if (!nested && flightGen.current === myGen) {
         refreshInFlightRef.current = false;
@@ -776,10 +831,17 @@ function usePredcaImpl() {
    * so with no RunPrice accounts this matches vault + Σ token units.
    * Wallet USDC is cash outside the DCA and is not included.
    */
-  const portfolioUsd = useMemo(() => {
-    if (!owner || priceWarning) return null;
-    return portfolioUsdKnown(vaultUsdc ?? 0, positions);
-  }, [owner, priceWarning, vaultUsdc, positions]);
+  const portfolioUsd = useMemo(
+    () =>
+      portfolioUsdForWallet({
+        hasOwner: Boolean(owner),
+        priceWarning,
+        balanceWarning,
+        vaultUsdc,
+        positions,
+      }),
+    [owner, priceWarning, balanceWarning, vaultUsdc, positions],
+  );
 
   const lastPurchaseOnChain = useMemo(() => {
     if (!lastRun) return null;
@@ -1200,11 +1262,12 @@ function usePredcaImpl() {
         still: followStill,
         refresh: async () => {
           const commit = await refresh({ publish: false, nested: true, quiet: true });
-          if (commit && commit.snapshot.rpcError) {
+          const readable = postTxReadAttempt(commit);
+          if (commit != null && readable == null) {
             failed = commit;
             return null;
           }
-          return commit;
+          return readable;
         },
         settled: (commit) => {
           if (kind === "buy") {
@@ -1868,6 +1931,7 @@ function usePredcaImpl() {
     rpcError,
     balanceWarning: balanceWarning ?? null,
     priceWarning: priceWarning ?? null,
+    rpcWarning: rpcWarning ?? null,
     unresolvedTxs,
     visibleUnresolvedTxs: visibleUnresolved(unresolvedTxs, sessionChecking),
     recheckUnresolved,

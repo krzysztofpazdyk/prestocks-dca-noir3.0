@@ -441,6 +441,58 @@ export function portfolioUsdKnown(vaultUsdc: number, rows: PositionRow[]): numbe
   return portfolioValue(vaultUsdc, rows);
 }
 
+export type PortfolioTileReason = "price" | "balances" | null;
+
+/**
+ * Whether the PreStock portfolio tile may show a dollar figure.
+ * `priceUnknown` is a missing RunPrice (or `valueKnown === false`).
+ * `balancesStale` is a soft token-balance miss (`balanceWarning`).
+ * When both apply, `reason` is `"balances"`: the figure would be summed from
+ * balances we failed to re-read, so the helper copy is the stale-balance
+ * warning. The price-loading sentence stays a separate line (`priceUnknown`).
+ */
+export function portfolioTileState(input: {
+  priceWarning?: string | null;
+  balanceWarning?: string | null;
+  positions: ReadonlyArray<{ valueKnown?: boolean }>;
+}): {
+  unknown: boolean;
+  reason: PortfolioTileReason;
+  priceUnknown: boolean;
+  balancesStale: boolean;
+} {
+  const priceUnknown =
+    Boolean(input.priceWarning) ||
+    input.positions.some((row) => row.valueKnown === false);
+  const balancesStale = Boolean(input.balanceWarning);
+  const reason: PortfolioTileReason = balancesStale
+    ? "balances"
+    : priceUnknown
+      ? "price"
+      : null;
+  return {
+    unknown: priceUnknown || balancesStale,
+    reason,
+    priceUnknown,
+    balancesStale,
+  };
+}
+
+/**
+ * Vault + marked positions, or null when the wallet is absent, a buy price
+ * is still unknown, or token balances are the previous read.
+ */
+export function portfolioUsdForWallet(input: {
+  hasOwner: boolean;
+  priceWarning?: string | null;
+  balanceWarning?: string | null;
+  vaultUsdc: number | null;
+  positions: PositionRow[];
+}): number | null {
+  if (!input.hasOwner || input.priceWarning || input.balanceWarning) return null;
+  return portfolioUsdKnown(input.vaultUsdc ?? 0, input.positions);
+}
+
 /**
  * True when every lot is priced or legacy and each name's balance is at least
  * the sum of lot units (v2 units, or legacy cost at 1:1). Unknown lots fail.

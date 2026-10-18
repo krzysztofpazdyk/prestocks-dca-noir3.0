@@ -95,6 +95,30 @@ test("jupiter price and position keys exist in Polish and English", () => {
   );
 });
 
+test("stale portfolio and RPC timeout copy exists in Polish and English", () => {
+  for (const key of ["portfolio.staleHint", "rpc.timeoutWarning"]) {
+    const texts = values(key);
+    assert.equal(texts.length, 2, key);
+    for (const text of texts) assert.ok(text.length > 0, key);
+  }
+  assert.equal(
+    values("portfolio.staleHint")[0],
+    "Wartość portfela może być nieaktualna do czasu odczytu sald.",
+  );
+  assert.equal(
+    values("portfolio.staleHint")[1],
+    "Portfolio value may be out of date until balances load.",
+  );
+  assert.equal(
+    values("rpc.timeoutWarning")[0],
+    "RPC Devnet odpowiada zbyt wolno — pokazuję poprzednie dane. Spróbuję ponownie automatycznie.",
+  );
+  assert.equal(
+    values("rpc.timeoutWarning")[1],
+    "Devnet RPC is responding slowly — showing the previous data. Retrying automatically.",
+  );
+});
+
 test("Overview and Trading desk stay English in the Polish dictionary", () => {
   const pl = src.slice(src.indexOf("const pl"), src.indexOf("const en"));
   assert.match(pl, /"nav\.overview": "Overview"/);
