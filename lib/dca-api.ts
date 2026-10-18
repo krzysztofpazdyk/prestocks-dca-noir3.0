@@ -9,6 +9,7 @@ import {
   rememberCompanyRecords,
 } from "@/lib/company-data";
 import { dcaApiBase, readTypesafeKey, readXaiKey } from "@/lib/keys";
+import { ensureRuntimeConfig } from "@/lib/runtime-config";
 import { metricsRank } from "@/lib/metrics-rank";
 import { premiumBasisFor } from "@/lib/premium-view";
 import {
@@ -121,6 +122,7 @@ function mapRunToRank(
 }
 
 export async function fetchLatestRun(): Promise<RankResult | null> {
+  await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) return null;
   const resp = await fetchWithTimeout(`${base}/run/latest`, {
@@ -145,10 +147,11 @@ export async function triggerDryRun(
   exclusions?: string[],
   prefs?: RankPrefs,
 ): Promise<RankResult> {
+  await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) {
     throw new Error(
-      "Brak NEXT_PUBLIC_DCA_API_URL — nie można wywołać API /run/dry.",
+      "Adres API nie jest skonfigurowany — nie można wywołać API /run/dry.",
     );
   }
   const headers: Record<string, string> = {
@@ -251,9 +254,10 @@ export type RankProxyResponse = {
 export async function postRank(
   prefs?: RankPrefs,
 ): Promise<RankProxyResponse> {
+  await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) {
-    throw new Error("Brak NEXT_PUBLIC_DCA_API_URL — nie można użyć proxy /rank.");
+    throw new Error("Adres API nie jest skonfigurowany — nie można użyć proxy /rank.");
   }
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -380,10 +384,11 @@ export type FaucetUsdcResponse = {
 export async function claimFaucetUsdc(
   wallet: string,
 ): Promise<FaucetUsdcResponse> {
+  await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) {
     throw new Error(
-      "Brak NEXT_PUBLIC_DCA_API_URL — nie można użyć faucet /faucet/usdc.",
+      "Adres API nie jest skonfigurowany — nie można użyć faucet /faucet/usdc.",
     );
   }
   const resp = await fetchWithTimeout(

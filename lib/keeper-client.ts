@@ -1,8 +1,23 @@
 /** Predca keeper client — public HTTPS (rank API /keeper proxy) + wallet sig auth. */
 
+import {
+  ensureRuntimeConfig,
+  runtimeDcaApiUrl,
+  runtimeKeeperUrl,
+} from "@/lib/runtime-config";
+
 const DEFAULT_KEEPER = "http://127.0.0.1:8792";
 
-function keeperUrl(): string {
+/**
+ * runtime keeperUrl, else runtime API + /keeper,
+ * else NEXT_PUBLIC_KEEPER_URL, else NEXT_PUBLIC_DCA_API_URL + /keeper,
+ * else local default.
+ */
+export function keeperUrl(): string {
+  const runtimeKeeper = runtimeKeeperUrl().trim().replace(/\/$/, "");
+  if (runtimeKeeper) return runtimeKeeper;
+  const runtimeDca = runtimeDcaApiUrl().trim().replace(/\/$/, "");
+  if (runtimeDca) return `${runtimeDca}/keeper`;
   const fromEnv = (process.env.NEXT_PUBLIC_KEEPER_URL ?? "").trim().replace(/\/$/, "");
   if (fromEnv) return fromEnv;
   const dca = (process.env.NEXT_PUBLIC_DCA_API_URL ?? "").trim().replace(/\/$/, "");
@@ -372,6 +387,7 @@ async function keeperFetch(
   init?: RequestInit,
   timeoutMs = 90000,
 ): Promise<KeeperTransport> {
+  await ensureRuntimeConfig();
   const ctrl = new AbortController();
   const t = window.setTimeout(() => ctrl.abort(), timeoutMs);
   try {

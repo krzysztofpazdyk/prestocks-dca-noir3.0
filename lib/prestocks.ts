@@ -20,6 +20,7 @@ import {
   type JupQuote,
 } from "@/lib/jup-prices";
 import { canUseSameOriginJevProxy, dcaApiBase, SS_PRODUCTS } from "@/lib/keys";
+import { ensureRuntimeConfig } from "@/lib/runtime-config";
 import {
   HARDCODED_PREMIUMS_PCT,
   MINTS,
@@ -348,6 +349,7 @@ function skipDirectPrestocks(): boolean {
 export async function fetchPrestocksProducts(
   prices?: JupPrices,
 ): Promise<ProductsFetchResult> {
+  await ensureRuntimeConfig();
   let inflight: Promise<JupPrices> | null = null;
   const pricesOnce = (): Promise<JupPrices> => {
     if (!inflight) {

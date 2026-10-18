@@ -266,7 +266,7 @@ export async function runRankingNow(
   }
 
   const reason = byok
-    ? "Brak NEXT_PUBLIC_DCA_API_URL i brak same-origin /api/jev — Jev nie może wystartować. Awaryjny ranking metryczny."
+    ? "Adres API nie jest skonfigurowany i brak same-origin /api/jev — Jev nie może wystartować. Awaryjny ranking metryczny."
     : "Wymagany klucz TypeSafe (BYOK) do Jev — brak darmowego hosted Jev. Awaryjny ranking metryczny.";
   const fallback = emergencyFromProducts(
     products,

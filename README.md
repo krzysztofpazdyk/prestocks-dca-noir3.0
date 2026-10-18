@@ -61,9 +61,25 @@ Zmienne (patrz `.env.example`):
 | `NEXT_PUBLIC_RPC_URL` | `http://127.0.0.1:8899` |
 | `NEXT_PUBLIC_PREDCA_PROGRAM_ID` | `Eb3TFLeYi3dHZwoKCBvvUpx3gMnP2XdmMXX3rstUpdwC` |
 | `NEXT_PUBLIC_USDC_MINT` | `3xtTBfHRf8AKEmhbFYqRoXfi9RaxxiqG9YfifjCjD4qm` (mock devnet) |
-| `NEXT_PUBLIC_DCA_API_URL` | *(puste — wstrzykiwane tylko przy buildzie)* |
-| `NEXT_PUBLIC_KEEPER_URL` | *(puste — wstrzykiwane tylko przy buildzie)* |
+| `NEXT_PUBLIC_DCA_API_URL` | *(puste — fallback z buildu; w runtime wygrywa `config.json`)* |
+| `NEXT_PUBLIC_KEEPER_URL` | *(puste — fallback z buildu; w runtime wygrywa `config.json`)* |
 | `NEXT_PUBLIC_BASE_PATH` | `/prestocks-dca-noir3.0` |
+
+Adres API i keepera nie musi być wbudowany w JS. Przy starcie strona pobiera `${basePath}/config.json` (szablon: `public/config.json`) i używa go przed zmiennymi z buildu.
+
+Priorytet API: niepuste `dcaApiUrl` z `config.json`, potem `NEXT_PUBLIC_DCA_API_URL`, potem pusto (klient nie woła API).
+
+Priorytet keepera: `keeperUrl` z `config.json`, potem `dcaApiUrl` z `config.json` + `/keeper`, potem `NEXT_PUBLIC_KEEPER_URL`, potem `NEXT_PUBLIC_DCA_API_URL` + `/keeper`, potem `http://127.0.0.1:8792`.
+
+```json
+{
+  "dcaApiUrl": "",
+  "keeperUrl": "",
+  "updatedAt": ""
+}
+```
+
+Tylko publiczne adresy `https` (w dev także `http` dla `localhost` i `127.0.0.1`) oraz opcjonalny `updatedAt`. Puste pole oznacza fallback do zmiennej z buildu. **Nie wolno** wpisywać tu kluczy, tokenów, Privy ID, klucza TypeSafe ani adresu RPC z kluczem. Nie commituj prawdziwego adresu tunelu — w repo zostaje pusty szablon.
 
 IDL jest skopiowane do `idl/predca.json` (aplikacja self-contained — bez runtime importu z `/workspace/predca`).
 
@@ -112,7 +128,15 @@ Docelowy adres (osobny od noir / noir 2.0 na tym samym originie):
 **https://krzysztofpazdyk.github.io/prestocks-dca-noir3.0/**
 
 - Build uses `output: 'export'` with `basePath` / `assetPrefix` `/prestocks-dca-noir3.0`.
-- Production env (`.env.production`) points at **Solana DEVNET** and predca 3.0. `NEXT_PUBLIC_DCA_API_URL` i `NEXT_PUBLIC_KEEPER_URL` są puste w repo — wartość jest wstrzykiwana tylko przy buildzie. Puste URL jest poprawne: klient nie woła keepera.
+- Production env (`.env.production`) points at **Solana DEVNET** and predca 3.0. `NEXT_PUBLIC_DCA_API_URL` i `NEXT_PUBLIC_KEEPER_URL` są puste w repo i są tylko fallbackiem z buildu. Działający adres jest w `config.json` obok strony. Puste oba źródła są poprawne: klient nie woła API; keeper zostaje przy `http://127.0.0.1:8792`.
+- Po restarcie tunelu Cloudflare (adres się zmienia) nie rób `npm ci` ani buildu. (a) Odczytaj nowy adres. (b) Zapisz jeden plik w katalogu głównym gałęzi `gh-pages`, obok `index.html` (na Pages jest to `/prestocks-dca-noir3.0/config.json`):
+
+  ```bash
+  node scripts/write-runtime-config.mjs "https://<tunel>.trycloudflare.com" /ścieżka/do/gh-pages/config.json
+  ```
+
+  (c) Jeden commit na `gh-pages` i push fast-forward. Następne załadowanie strony bierze nowy adres (żądanie ma `cache: no-store` i parametr `?t=`).
+- Przy pełnym deployu `public/config.json` trafia do eksportu (`out/config.json`). Deploy musi zapisać aktualny adres: uruchom skrypt przed buildem na `public/config.json` albo podmień plik po skopiowaniu `out/`. Nie nadpisuj szablonu w tym repo prawdziwym adresem tunelu. W pliku nie ma sekretów.
 - `NEXT_PUBLIC_TYPESAFE_DEFAULT_KEY` zostaw puste w repozytorium. Przed buildem Pages ustaw tę zmienną w środowisku builda. Bez niej demo nie wpisuje klucza. Wartość i tak widać w JS strony.
 - Ta kopia nie ma `.github/workflows/pages.yml`. Deploy jest ręczny.
 
