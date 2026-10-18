@@ -12,7 +12,12 @@ import {
   type JupPrices,
 } from "@/lib/jup-prices";
 import { priceRows, type PriceRowFlag } from "@/lib/price-rows";
-import { pnlSummary, positionPnlKind, type PositionRow } from "@/lib/position-value";
+import {
+  pnlSummary,
+  portfolioTileState,
+  positionPnlKind,
+  type PositionRow,
+} from "@/lib/position-value";
 import {
   DEFAULT_SETTINGS,
   type Holding,
@@ -269,10 +274,14 @@ export function OverviewView() {
     connected && predca.solBalance != null ? predca.solBalance : null;
   const displayOwnerUsdc =
     connected && predca.ownerUsdc != null ? predca.ownerUsdc : null;
-  const portfolioUnknown =
-    connected &&
-    (Boolean(predca.priceWarning) ||
-      predca.positions.some((row) => row.valueKnown === false));
+  const portfolioTile = portfolioTileState({
+    priceWarning: predca.priceWarning,
+    balanceWarning: predca.balanceWarning,
+    positions: predca.positions,
+  });
+  const portfolioUnknown = connected && portfolioTile.unknown;
+  const portfolioPriceUnknown = connected && portfolioTile.priceUnknown;
+  const portfolioBalanceStale = connected && portfolioTile.balancesStale;
   const displayPortfolioUsd =
     connected && !portfolioUnknown && predca.portfolioUsd != null
       ? predca.portfolioUsd
@@ -1172,9 +1181,15 @@ export function OverviewView() {
           {pricesReady && !predca.pricesLoading && !anyTokenPrice && (
             <p>{t("prices.unavailable")}</p>
           )}
-          {portfolioUnknown && <p>{t("runPrice.loading")}</p>}
-          {connected && predca.balanceWarning ? (
-            <p className="text-[#fbbf24]">{t(predca.balanceWarning)}</p>
+          {portfolioPriceUnknown ? <p>{t("runPrice.loading")}</p> : null}
+          {portfolioBalanceStale && predca.balanceWarning ? (
+            <>
+              <p className="text-[#fbbf24]">{t(predca.balanceWarning)}</p>
+              <p className="text-[#fbbf24]">{t("portfolio.staleHint")}</p>
+            </>
+          ) : null}
+          {connected && predca.rpcWarning ? (
+            <p className="text-[#fbbf24]">{t(predca.rpcWarning)}</p>
           ) : null}
           {allAtCost &&
             !(connected && predca.positions.length > 0 && !pnlSummary(predca.positions).hasPriced) && (
@@ -1433,6 +1448,7 @@ export function OverviewView() {
           locale={locale}
           detailsOpen={detailsOpen}
           onToggleDetails={() => setDetailsOpen((open) => !open)}
+          balancesStale={portfolioBalanceStale}
         />
       )}
 
@@ -1594,11 +1610,14 @@ function PnlSection({
   locale,
   detailsOpen,
   onToggleDetails,
+  balancesStale = false,
 }: {
   rows: PositionRow[];
   locale: string;
   detailsOpen: boolean;
   onToggleDetails: () => void;
+  /** Hide the USD total. It is summed from the previous token balances. */
+  balancesStale?: boolean;
 }) {
   const { t } = useI18n();
   const summary = pnlSummary(rows);
@@ -1613,7 +1632,9 @@ function PnlSection({
       <h2 className="mb-2 text-[11px] uppercase tracking-[0.15em] text-[#a78bfa]">
         {t("pnl.title")}
       </h2>
-      {money ? (
+      {balancesStale ? (
+        <p className="mono-num text-sm text-[#c5cedb]">{t("runPrice.unknown")}</p>
+      ) : money ? (
         <p className={`mono-num text-lg ${pnlClass}`}>
           {t("pnl.total")} {money}
         </p>

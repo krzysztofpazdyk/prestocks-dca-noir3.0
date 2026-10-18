@@ -23,6 +23,11 @@ export type PredcaSnapshot = {
   balanceWarning?: string | null;
   /** i18n key. At least one run has no confirmed RunPrice yet. */
   priceWarning?: string | null;
+  /**
+   * i18n key. A refresh read timed out. Previous snapshot stays.
+   * Not `rpcError`: a slow Devnet read must not block a manual buy.
+   */
+  rpcWarning?: string | null;
 };
 
 export const EMPTY_SNAPSHOT: PredcaSnapshot = {
@@ -36,6 +41,9 @@ export const EMPTY_SNAPSHOT: PredcaSnapshot = {
   rpcError: null,
 };
 
+/** i18n key for a timed-out refresh that kept the previous snapshot. */
+export const RPC_TIMEOUT_WARNING_KEY = "rpc.timeoutWarning";
+
 export type RefreshOutcome =
   | {
       ok: true;
@@ -48,15 +56,27 @@ export type RefreshOutcome =
       tokenBalancesStale?: boolean;
       runs: RunRecordData[];
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; soft?: false }
+  | { ok: false; soft: true; warning?: string };
 
-/** Success replaces the snapshot. Failure keeps the last-known fields and sets rpcError. */
+/**
+ * Success replaces the snapshot and clears warnings.
+ * A hard failure keeps the last-known fields and sets rpcError.
+ * A soft timeout keeps the last-known fields, does not set rpcError, and
+ * sets `rpcWarning`. A previous `balanceWarning` stays until a successful read.
+ */
 export function nextSnapshotAfterRefresh(
   prev: PredcaSnapshot,
   outcome: RefreshOutcome,
 ): PredcaSnapshot {
+  if (!outcome.ok && outcome.soft === true) {
+    return {
+      ...prev,
+      rpcWarning: outcome.warning ?? RPC_TIMEOUT_WARNING_KEY,
+    };
+  }
   if (!outcome.ok) {
-    return { ...prev, rpcError: outcome.error };
+    return { ...prev, rpcError: outcome.error, rpcWarning: null };
   }
   return {
     config: outcome.config,
@@ -69,6 +89,7 @@ export function nextSnapshotAfterRefresh(
     rpcError: null,
     balanceWarning: outcome.tokenBalancesStale ? "balances.warning" : null,
     priceWarning: null,
+    rpcWarning: null,
   };
 }
 

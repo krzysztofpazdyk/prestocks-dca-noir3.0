@@ -350,6 +350,10 @@ const pl: Dict = {
   "runPrice.unknown": "—",
   "balances.warning":
     "Salda tokenów chwilowo niedostępne — pokazuję poprzednie. Odśwież za chwilę.",
+  "portfolio.staleHint":
+    "Wartość portfela może być nieaktualna do czasu odczytu sald.",
+  "rpc.timeoutWarning":
+    "RPC Devnet odpowiada zbyt wolno — pokazuję poprzednie dane. Spróbuję ponownie automatycznie.",
 
   "prices.source": "Ceny: Jupiter (mainnet PreStocks)",
   "prices.stale": "ceny: ostatni odczyt · {time}",
@@ -730,6 +734,10 @@ const en: Dict = {
   "runPrice.unknown": "—",
   "balances.warning":
     "Token balances are temporarily unavailable — showing the previous ones. Refresh in a moment.",
+  "portfolio.staleHint":
+    "Portfolio value may be out of date until balances load.",
+  "rpc.timeoutWarning":
+    "Devnet RPC is responding slowly — showing the previous data. Retrying automatically.",
 
   "prices.source": "Prices: Jupiter (mainnet PreStocks)",
   "prices.stale": "prices: last read · {time}",

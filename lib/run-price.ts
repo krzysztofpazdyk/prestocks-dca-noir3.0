@@ -15,6 +15,7 @@
 import { BN } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { programId, runPricePda } from "@/lib/predca";
+import { readTimeoutMs, withTimeout } from "@/lib/rpc-timeout";
 
 export { runPricePda };
 
@@ -204,21 +205,31 @@ export function effectiveRunPricePresence<T>(
   return presence;
 }
 
-/** Batch-read RunPrice PDAs. RPC failure → ok false so the caller keeps the previous map. */
+/**
+ * Batch-read RunPrice PDAs. RPC failure, including a timeout when `timeoutMs`
+ * is set, returns ok false so the caller keeps the previous map.
+ * Omitted `timeoutMs` does not add a deadline (tests and any non-refresh caller).
+ */
 export async function fetchRunPrices(
   connection: Connection,
   owner: PublicKey,
   runIndices: number[],
+  timeoutMs?: number,
 ): Promise<RunPriceFetch> {
   const program = programId();
   const unique = [...new Set(runIndices)];
   const out = new Map<number, DecodedRunPrice | null>();
   for (const idx of unique) out.set(idx, null);
+  const deadline = timeoutMs == null ? null : Date.now() + timeoutMs;
   try {
     for (let i = 0; i < unique.length; i += 100) {
       const slice = unique.slice(i, i + 100);
       const pdas = slice.map((idx) => runPricePda(owner, idx, program)[0]);
-      const infos = await connection.getMultipleAccountsInfo(pdas);
+      const pending = connection.getMultipleAccountsInfo(pdas);
+      const infos =
+        deadline == null
+          ? await pending
+          : await withTimeout(pending, readTimeoutMs(deadline), "runPrices");
       infos.forEach((info, j) => {
         out.set(slice[j], decodeRunPriceAccount(info, program));
       });

@@ -14,6 +14,12 @@ import {
 } from "@solana/web3.js";
 import idl from "@/idl/predca.json";
 import type { Predca } from "@/types/predca";
+import {
+  isRpcTimeout,
+  readTimeoutMs,
+  RPC_READ_TIMEOUT_MS,
+  withTimeout,
+} from "@/lib/rpc-timeout";
 import { textKeepingSignature } from "@/lib/vault-follow-up";
 
 export const DEFAULT_PROGRAM_ID =
@@ -291,9 +297,10 @@ function errorMessageText(err: unknown): string {
 /**
  * Transport and rate-limit failures. `\b429\b` does not match a digit run
  * buried inside a signature. An object with status 429 counts even if the
- * message never says 429.
+ * message never says 429. `RpcTimeoutError` counts: a hung read is a soft miss.
  */
 export function isRateOrNetworkError(err: unknown): boolean {
+  if (isRpcTimeout(err)) return true;
   if (httpStatusCode(err) === 429) return true;
   const msg = errorMessageText(err);
   if (/\b429\b/.test(msg) || /\b50[234]\b/.test(msg)) return true;
@@ -302,8 +309,8 @@ export function isRateOrNetworkError(err: unknown): boolean {
   );
 }
 
-function isRpcDisconnect(err: unknown, msg: string): boolean {
-  if (httpStatusCode(err) === 429) return true;
+export function isRpcDisconnect(err: unknown, msg: string): boolean {
+  if (isRpcTimeout(err) || httpStatusCode(err) === 429) return true;
   return (
     /failed to fetch|ECONNREFUSED|Network request failed|fetch failed/i.test(msg) ||
     /\b429\b/.test(msg)
@@ -313,9 +320,14 @@ function isRpcDisconnect(err: unknown, msg: string): boolean {
 export async function fetchUserConfig(
   program: Program<Predca>,
   owner: PublicKey,
+  timeoutMs?: number,
 ): Promise<UserConfigData | null> {
   const [pda] = userConfigPda(owner);
-  const acc = await program.account.userConfig.fetchNullable(pda);
+  const pending = program.account.userConfig.fetchNullable(pda);
+  const acc =
+    timeoutMs == null
+      ? await pending
+      : await withTimeout(pending, timeoutMs, "userConfig");
   if (!acc) return null;
   return acc as unknown as UserConfigData;
 }
@@ -612,6 +624,7 @@ export async function fetchMockTokenBalances(
   connection: Connection,
   owner: PublicKey,
   entries: { name: string; mint: PublicKey }[],
+  opts?: { timeoutMs?: number },
 ): Promise<TokenBalanceRead> {
   const rows: MockTokenBalance[] = [];
   const atas = entries.map(({ name, mint }) => ({
@@ -619,10 +632,16 @@ export async function fetchMockTokenBalances(
     mint,
     ata: getAssociatedTokenAddressSync(mint, owner, false, TOKEN_PROGRAM_ID),
   }));
+  const budget = opts?.timeoutMs ?? RPC_READ_TIMEOUT_MS;
+  const deadline = Date.now() + budget;
   try {
     for (let i = 0; i < atas.length; i += TOKEN_BALANCE_BATCH) {
       const slice = atas.slice(i, i + TOKEN_BALANCE_BATCH);
-      const infos = await connection.getMultipleAccountsInfo(slice.map((row) => row.ata));
+      const infos = await withTimeout(
+        connection.getMultipleAccountsInfo(slice.map((row) => row.ata)),
+        readTimeoutMs(deadline),
+        "getMultipleAccountsInfo",
+      );
       if (infos.length !== slice.length) {
         return { balances: [], status: "unknown", detail: "balances.warning" };
       }

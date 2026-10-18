@@ -208,6 +208,28 @@ export function buyRefreshSettled(input: {
 }
 
 /**
+ * A post-tx retry only counts a read that actually returned.
+ * `rpcError` and a soft timeout are failed attempts: the caller retries, and
+ * must not treat the kept snapshot as "the buy is visible".
+ */
+export function postTxReadAttempt<
+  T extends { softTimeout?: boolean; snapshot: { rpcError: string | null } },
+>(commit: T | null): T | null {
+  if (commit == null) return null;
+  if (commit.softTimeout) return null;
+  if (commit.snapshot.rpcError) return null;
+  return commit;
+}
+
+/**
+ * In-flight flags belong to the refresh that still owns `myGen`.
+ * A newer pass bumps the counter; the older `finally` must not clear them.
+ */
+export function flightMayRelease(currentGen: number, myGen: number): boolean {
+  return currentGen === myGen;
+}
+
+/**
  * At most `attempts` refreshes, `gapMs` apart. Stops early when `settled` or
  * when `still` is false so a stale epoch cannot overwrite a newer read.
  */
