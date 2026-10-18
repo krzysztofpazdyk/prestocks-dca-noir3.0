@@ -74,6 +74,36 @@ export function chainPollDecision(input: {
   return "poll";
 }
 
+/**
+ * Critical reads always start. Poll and any other non-critical source wait
+ * until the in-flight read finishes. Omitted source is critical (mount,
+ * keeper, and action calls pass no opts). Nested post-tx reads stay on the
+ * outer flight and are not skipped here.
+ */
+export const CRITICAL_REFRESH_SOURCES = [
+  "critical",
+  "owner",
+  "disconnect",
+  "keeper",
+  "afterTx",
+  "manual",
+] as const;
+
+export type CriticalRefreshSource = (typeof CRITICAL_REFRESH_SOURCES)[number];
+
+export type RefreshCallSource = "poll" | CriticalRefreshSource;
+
+export function refreshCallDecision(input: {
+  source?: string;
+  inFlight: boolean;
+  nested?: boolean;
+}): "run" | "skip" {
+  if (input.nested) return "run";
+  const source = input.source ?? "critical";
+  if ((CRITICAL_REFRESH_SOURCES as readonly string[]).includes(source)) return "run";
+  return input.inFlight ? "skip" : "run";
+}
+
 export type RunMeta = { runIndex: number; ts: number };
 
 /**

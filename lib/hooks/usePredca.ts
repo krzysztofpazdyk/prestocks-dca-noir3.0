@@ -27,6 +27,7 @@ import {
   buyRefreshSettled,
   chainPollDecision,
   commitRefreshRead,
+  refreshCallDecision,
   loadJupPricesInBackground,
   refreshPrices as refreshPricesOnly,
   refreshWriteStillCurrent,
@@ -446,11 +447,12 @@ function usePredcaImpl() {
     publish?: boolean;
     nested?: boolean;
     quiet?: boolean;
+    source?: "poll" | "critical";
   }): Promise<RefreshCommit | null> => {
     const nested = opts?.nested === true;
     const publish = opts?.publish !== false;
     const quiet = opts?.quiet === true;
-    if (!nested && refreshInFlightRef.current) return null;
+    const source = opts?.source ?? "critical";
     const epochAtStart = dataEpoch.current;
     const ownerAtStart = owner?.toBase58() ?? null;
     const still = () =>
@@ -460,34 +462,18 @@ function usePredcaImpl() {
         dataEpoch.current,
         ownerRef.current?.toBase58() ?? null,
       );
-    if (!still()) return null;
-    const pricesPromise = loadJupPricesInBackground(
-      fetchJupPrices,
-      still,
-      setJupPrices,
-      setPricesLoading,
-    );
-    markHandled(pricesPromise);
-    if (!quiet) reportError(null);
-    if (!owner) {
-      if (!still()) {
-        return null;
-      }
-      const empty: RefreshCommit = { snapshot: EMPTY_SNAPSHOT, prices: new Map() };
-      if (publish) publishRef.current(empty);
-      return empty;
-    }
-    if (!still()) {
+    if (
+      refreshCallDecision({
+        source,
+        inFlight: refreshInFlightRef.current,
+        nested,
+      }) === "skip"
+    ) {
       return null;
     }
+    if (!still()) return null;
     let myGen = 0;
-    if (!nested) {
-      myGen = ++flightGen.current;
-      refreshInFlightRef.current = true;
-      loadingRef.current = true;
-      setLoading(true);
-    }
-    const readGen = nested ? flightGen.current : myGen;
+    let readGen = 0;
     const mayPublish = () => publish && still() && flightGen.current === readGen;
     const finish = (
       partial: {
@@ -527,6 +513,33 @@ function usePredcaImpl() {
       return commit;
     };
     try {
+      if (!nested) {
+        // Take the flight so an older read cannot publish over this one.
+        myGen = ++flightGen.current;
+        refreshInFlightRef.current = true;
+        loadingRef.current = true;
+        setLoading(true);
+      }
+      readGen = nested ? flightGen.current : myGen;
+      const pricesPromise = loadJupPricesInBackground(
+        fetchJupPrices,
+        still,
+        setJupPrices,
+        setPricesLoading,
+      );
+      markHandled(pricesPromise);
+      if (!quiet) reportError(null);
+      if (!owner) {
+        if (!still()) {
+          return null;
+        }
+        const empty: RefreshCommit = { snapshot: EMPTY_SNAPSHOT, prices: new Map() };
+        if (mayPublish()) publishRef.current(empty);
+        return empty;
+      }
+      if (!still()) {
+        return null;
+      }
       const solPromise = fetchSolBalance(connection, owner);
       markHandled(solPromise);
       const ownerBalPromise = mint
@@ -626,12 +639,14 @@ function usePredcaImpl() {
       if (mayPublish()) publishRef.current(commit);
       return commit;
     } finally {
-      if (!nested && flightGen.current === myGen) refreshInFlightRef.current = false;
-      loadingRef.current = false;
-      (() => {
-        if (!still()) return;
-        setLoading(false);
-      })();
+      if (!nested && flightGen.current === myGen) {
+        refreshInFlightRef.current = false;
+        loadingRef.current = false;
+        (() => {
+          if (!still()) return;
+          setLoading(false);
+        })();
+      }
     }
   }, [program, owner, connection, mint]);
 
@@ -657,7 +672,7 @@ function usePredcaImpl() {
       ) {
         return;
       }
-      void refresh({ quiet: true });
+      void refresh({ quiet: true, source: "poll" });
     };
     const arm = () => {
       stop();
@@ -1217,7 +1232,11 @@ function usePredcaImpl() {
       const chosen = result.last ?? failed;
       if (chosen) publishRef.current(chosen);
     } finally {
-      if (flightGen.current === myGen) refreshInFlightRef.current = false;
+      if (flightGen.current === myGen) {
+        refreshInFlightRef.current = false;
+        loadingRef.current = false;
+        if (followStill()) setLoading(false);
+      }
     }
   }
 
