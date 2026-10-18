@@ -628,10 +628,18 @@ export function OverviewView() {
   const top3Names = top3.map((row) => row.name).join("\u0001");
   // previewBuy is a useCallback (no `this`). Depend on it, not the whole predca object.
   const previewBuy = predca.previewBuy;
+  const previewNames = top3Names ? top3Names.split("\u0001") : [];
+  const previewGateOpen =
+    connected && onChainReady && previewNames.length >= 3;
+  // Hide the stored quote while the gate is closed, without writing state in the effect.
+  const shownBuyPreview = previewGateOpen ? buyPreview : null;
   useEffect(() => {
     const names = top3Names ? top3Names.split("\u0001") : [];
     if (!connected || !onChainReady || names.length < 3) {
-      setBuyPreview(null);
+      // Drop the stored quote after paint so a later reconnect does not flash it.
+      queueMicrotask(() => {
+        setBuyPreview((prev) => (prev == null ? prev : null));
+      });
       return;
     }
     let cancel = false;
@@ -1355,8 +1363,8 @@ export function OverviewView() {
             ) : null}
             {dupNotice("buy", resolvePurchaseAmount(predca.weeklyBudgetUsd, ownerBase58))}
             {dupInfoNotice("buy", resolvePurchaseAmount(predca.weeklyBudgetUsd, ownerBase58))}
-            {buyPreview && (
-              <p className="mt-3 text-[10px] text-[#8b95a8]">{buyPreview}</p>
+            {shownBuyPreview && (
+              <p className="mt-3 text-[10px] text-[#8b95a8]">{shownBuyPreview}</p>
             )}
             {purchaseMsg && (
               <p

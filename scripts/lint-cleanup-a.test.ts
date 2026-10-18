@@ -21,7 +21,8 @@ test("LocaleBtn is defined at module scope, not inside Nav", () => {
   assert.match(nav, /bg-\[#2dd4bf22\] text-\[#2dd4bf\] border border-\[#2dd4bf66\]/);
   assert.match(nav, /bg-\[#a78bfa22\] text-\[#a78bfa\] border border-\[#a78bfa66\]/);
   assert.match(nav, /border border-transparent text-\[#8b95a8\] hover:text-\[#e8eef5\]/);
-  assert.match(nav, /setWalletReady\(true\)/);
+  assert.match(nav, /useIsClient\(\)/);
+  assert.doesNotMatch(nav, /setWalletReady/);
 });
 
 test("run-price does not import BN", () => {
@@ -48,8 +49,5 @@ test("buy preview effect depends on the stable previewBuy callback", () => {
     effect,
     /\}, \[connected, onChainReady, top3Names, previewBuy, locale, t\]\);/,
   );
-  assert.match(
-    effect,
-    /if \(!connected \|\| !onChainReady \|\| names\.length < 3\) \{\s*setBuyPreview\(null\);/,
-  );
+  assert.match(effect, /shownBuyPreview = previewGateOpen \? buyPreview : null/);
 });

@@ -15,7 +15,10 @@ import { AnchorProvider } from "@coral-xyz/anchor";
 import { useConnection, useAnchorWallet, useWallet } from "@solana/wallet-adapter-react";
 import { usePrivyTxOverride } from "@/components/PrivyWalletBridge";
 import { PRIVY_WALLET_NAME } from "@/lib/privy-embedded-adapter";
-import { withOneStaleBlockhashRetry } from "@/lib/privy-blockhash";
+import {
+  isStaleBlockhashError,
+  withOneStaleBlockhashRetry,
+} from "@/lib/privy-blockhash";
 import {
   leaveManualBuy,
   noteUnconfirmedRunIndex,
@@ -78,7 +81,23 @@ import {
   rejectedTxMessage,
   unresolvedSignatureBlocksTx,
 } from "@/lib/vault-follow-up";
-import { Transaction, type PublicKey } from "@solana/web3.js";
+import {
+  Transaction,
+  type PublicKey,
+  type TransactionInstruction,
+} from "@solana/web3.js";
+import {
+  assembleBuyTransaction,
+  ataCreateInstructions,
+  chooseBuySubmit,
+  confirmSignatureByPolling,
+  legacyPacketBytes,
+  missingAtaIndexes,
+  ownerAtaAddress,
+  transactionFromInstructions,
+} from "@/lib/buy-ata";
+import { getLocaleSnapshot } from "@/lib/locale-store";
+import { translate } from "@/lib/i18n";
 import { fetchJupPrices, emptyJupPrices, type JupPrices } from "@/lib/jup-prices";
 import {
   fetchPriceFeedsCached,
@@ -111,7 +130,6 @@ import {
   BN,
   MOCK_USDC_MINT,
   dollarsToRaw,
-  ensureOwnerAtas,
   fetchMockTokenBalances,
   fetchOwnerUsdcBalance,
   fetchRunRecords,
@@ -706,7 +724,16 @@ function usePredcaImpl() {
   }, [program, owner, connection, mint]);
 
   useEffect(() => {
-    void refresh();
+    // refresh() sets loading synchronously. A microtask keeps that off the
+    // effect body so the first read is still the next turn, not a later tick.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      void refresh();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -1793,40 +1820,109 @@ function usePredcaImpl() {
       const nextIndex = scanned;
 
       const submitAt = async (runIndex: number) => {
-        // Pre-create owner ATAs (idempotent) — program requires them to exist.
-        await ensureOwnerAtas(
-          connection,
-          owner,
-          mints,
-          async (tx: Transaction, conn) => {
-            const sig = await sendTransaction(tx, conn, {
-              skipPreflight: false,
-              preflightCommitment: "confirmed",
-            });
-            const latest = await conn.getLatestBlockhash("confirmed");
-            await conn.confirmTransaction(
-              { signature: sig, ...latest },
-              "confirmed",
-            );
-            return sig;
-          },
-        );
-
         // Anchor resolves PDAs that have seeds (vault, mint_auth, ATAs, run_record).
         // price_feed_* and run_price have no IDL seeds and must be passed.
-        return program.methods
-          .simulateBuyV2(new BN(runIndex), mints, Array.from({ length: 32 }, () => 0))
-          .accounts({
-            usdcMint: mint,
-            mintA: mints[0],
-            mintB: mints[1],
-            mintC: mints[2],
-            priceFeedA: priceFeedPda(mints[0])[0],
-            priceFeedB: priceFeedPda(mints[1])[0],
-            priceFeedC: priceFeedPda(mints[2])[0],
-            runPrice: runPricePda(owner, runIndex)[0],
-          })
-          .rpc();
+        const buyMethod = (index: number) =>
+          program.methods
+            .simulateBuyV2(
+              new BN(index),
+              mints,
+              Array.from({ length: 32 }, () => 0),
+            )
+            .accounts({
+              usdcMint: mint,
+              mintA: mints[0],
+              mintB: mints[1],
+              mintC: mints[2],
+              priceFeedA: priceFeedPda(mints[0])[0],
+              priceFeedB: priceFeedPda(mints[1])[0],
+              priceFeedC: priceFeedPda(mints[2])[0],
+              runPrice: runPricePda(owner, index)[0],
+            });
+
+        // The program requires the three owner token accounts. A separate
+        // create used to wait on confirmTransaction, which needs a websocket.
+        // Without one it threw after the blockhash expired, and that error
+        // was reported as a finished purchase even though the buy never ran.
+        const atas = mints.map((mintKey) => ownerAtaAddress(owner, mintKey));
+        const infos = await connection.getMultipleAccountsInfo(atas);
+        const missing = missingAtaIndexes(infos.map((info) => info != null));
+        const ataIxs = ataCreateInstructions(owner, mints, missing);
+        const locale = getLocaleSnapshot();
+        let plan: "buy-only" | "combined" | "two-step" = "buy-only";
+        let blockhash = "";
+        let buyIx: TransactionInstruction | null = null;
+        if (missing.length > 0) {
+          buyIx = await buyMethod(runIndex).instruction();
+          blockhash = (await connection.getLatestBlockhash("confirmed")).blockhash;
+          plan = chooseBuySubmit(
+            missing.length,
+            legacyPacketBytes(
+              assembleBuyTransaction(ataIxs, buyIx, owner, blockhash),
+            ),
+          );
+        }
+
+        const sendAndConfirm = async (tx: Transaction): Promise<string> => {
+          tx.feePayer = owner;
+          tx.recentBlockhash = blockhash;
+          const sig = await sendTransaction(tx, connection, {
+            skipPreflight: false,
+            preflightCommitment: "confirmed",
+          });
+          await confirmSignatureByPolling(async (signature) => {
+            const { value } = await connection.getSignatureStatuses([signature]);
+            const row = value[0];
+            if (!row) return [null];
+            return [
+              {
+                err: row.err,
+                confirmationStatus: row.confirmationStatus ?? null,
+              },
+            ];
+          }, sig);
+          return sig;
+        };
+
+        if (plan === "combined") {
+          if (!buyIx) {
+            throw new Error("Brak instrukcji zakupu.");
+          }
+          return sendAndConfirm(
+            assembleBuyTransaction(ataIxs, buyIx, owner, blockhash),
+          );
+        }
+
+        if (plan === "two-step") {
+          setOkMsg(translate(locale, "buy.stepAta"));
+          try {
+            await sendAndConfirm(
+              transactionFromInstructions(ataIxs, owner, blockhash),
+            );
+          } catch (e) {
+            setOkMsg(null);
+            if (isStaleBlockhashError(e)) throw e;
+            if (isUnconfirmedTimeout(e)) {
+              const sig = isUnconfirmedTimeout(e)?.signature ?? "";
+              throw new Error(
+                `${translate(locale, "buy.ataUnconfirmedNoBuy")}${sig ? ` ${sig}` : ""}`,
+              );
+            }
+            throw e;
+          }
+          setOkMsg(translate(locale, "buy.stepBuy"));
+        }
+
+        try {
+          return await buyMethod(runIndex).rpc();
+        } catch (e) {
+          if (plan !== "two-step") throw e;
+          if (isUnconfirmedTimeout(e) || isStaleBlockhashError(e)) throw e;
+          setOkMsg(null);
+          const lead = translate(locale, "buy.ataCreatedNoVault");
+          const detail = parseAnchorError(e);
+          throw new Error(detail ? `${lead} ${detail}` : lead);
+        }
       };
 
       const submitOnce = (runIndex: number) =>

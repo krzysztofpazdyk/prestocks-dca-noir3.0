@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { clusterLabel } from "@/lib/predca";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
+import { useIsClient } from "@/lib/hooks/useIsClient";
 
 function LocaleBtn({
   code,
@@ -38,11 +38,8 @@ function LocaleBtn({
 export function Nav() {
   const pathname = usePathname();
   const { locale, setLocale, t } = useI18n();
-  const [walletReady, setWalletReady] = useState(false);
-
-  useEffect(() => {
-    setWalletReady(true);
-  }, []);
+  // False on the server and during hydration, true on the next client render.
+  const walletReady = useIsClient();
 
   const links = [
     { href: "/", label: t("nav.overview") },
