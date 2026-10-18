@@ -35,6 +35,12 @@ import {
   type CapTimers,
   type OnceTask,
 } from "@/lib/connect-wallet";
+import {
+  pickerShouldClose,
+  pickerShouldOpenForError,
+  settleDepsChanged,
+  type SettleSnapshot,
+} from "@/lib/connect-picker";
 import { clearStatusAuthCache } from "@/lib/keeper-client";
 import { privyAppId } from "@/lib/privy-devnet";
 import { hasSolanaEmbeddedWallet } from "@/lib/privy-user";
@@ -722,16 +728,33 @@ function ConnectUi({ job, privy }: { job: ConnectJob; privy: PrivyUi | null }) {
     busyWas.current = job.busy;
   }, [job.busy]);
 
+  const seenErrorRef = useRef<string | null>(null);
   useEffect(() => {
-    if (job.error) setPickerOpen(true);
+    // Open only when the error value changes, same as the old [job.error] effect.
+    if (pickerShouldOpenForError(job.error, seenErrorRef.current)) {
+      setPickerOpen(true);
+    }
+    seenErrorRef.current = job.error;
   }, [job.error]);
 
+  const seenSettleRef = useRef<SettleSnapshot | null>(null);
   useEffect(() => {
-    const settled =
-      !job.dropped &&
-      !job.staleHold &&
-      ((job.connected && Boolean(job.publicKey)) || Boolean(job.pinnedAddress));
-    if (!job.busy && settled && !job.error) setPickerOpen(false);
+    const next: SettleSnapshot = {
+      busy: job.busy,
+      dropped: job.dropped,
+      staleHold: job.staleHold,
+      connected: job.connected,
+      hasPublicKey: Boolean(job.publicKey),
+      pinnedAddress: job.pinnedAddress,
+      error: job.error,
+      publicKey: job.publicKey,
+    };
+    // Close on the same dependency changes as before. A manual open stays
+    // up until one of those values changes and the connection is settled.
+    if (pickerShouldClose(next, settleDepsChanged(seenSettleRef.current, next))) {
+      setPickerOpen(false);
+    }
+    seenSettleRef.current = next;
   }, [
     job.busy,
     job.connected,

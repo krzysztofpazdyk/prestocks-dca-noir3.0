@@ -37,6 +37,10 @@ import {
   setPrivyWalletDelegate,
 } from "@/lib/privy-wallet-delegate";
 import { hasForeignSignature } from "@/lib/privy-blockhash";
+import {
+  commitLatestRef,
+  useIsomorphicLayoutEffect,
+} from "@/lib/hooks/useLatestRef";
 
 /** One registration per address. Wallet Standard ignores a second copy of the same object. */
 const registeredKeys = new Set<string>();
@@ -93,7 +97,6 @@ function clearFeePayerSignature(transaction: Transaction, feePayer: PublicKey) {
 export function PrivyWalletBridge({ children }: { children: ReactNode }) {
   const { connection } = useConnection();
   const connectionRef = useRef(connection);
-  connectionRef.current = connection;
   const { wallets: standardWallets } = useStandardWallets();
   const { wallets } = useWallets();
   const { signMessage: privySignMessage } = useSignMessage();
@@ -106,13 +109,18 @@ export function PrivyWalletBridge({ children }: { children: ReactNode }) {
   );
 
   const embeddedRef = useRef(embedded);
-  embeddedRef.current = embedded;
   const signMessageRef = useRef(privySignMessage);
-  signMessageRef.current = privySignMessage;
   const signTransactionRef = useRef(privySignTransaction);
-  signTransactionRef.current = privySignTransaction;
   const standardRef = useRef(standardWallets);
-  standardRef.current = standardWallets;
+  // Before the registration and delegate effects below, and before child
+  // useEffect. The ref is created with this render's value, then kept current.
+  useIsomorphicLayoutEffect(() => {
+    commitLatestRef(connectionRef, connection);
+    commitLatestRef(embeddedRef, embedded);
+    commitLatestRef(signMessageRef, privySignMessage);
+    commitLatestRef(signTransactionRef, privySignTransaction);
+    commitLatestRef(standardRef, standardWallets);
+  });
 
   const privyStandard = useMemo(
     () =>

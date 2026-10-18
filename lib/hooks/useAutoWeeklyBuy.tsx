@@ -47,6 +47,10 @@ import {
 } from "@/lib/auto-weekly-buy";
 import { presentAutoBuyError } from "@/lib/auto-buy-error";
 import { useI18n } from "@/lib/i18n";
+import {
+  commitLatestRef,
+  useIsomorphicLayoutEffect,
+} from "@/lib/hooks/useLatestRef";
 import { usePredca } from "@/lib/hooks/usePredca";
 import { keeperEnabledForConnectedOwner } from "@/lib/keeper-enabled";
 import { unresolvedSignatureBlocksTx } from "@/lib/vault-follow-up";
@@ -108,22 +112,28 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
   const [due, setDue] = useState(false);
   const [keeperMode, setKeeperMode] = useState<KeeperMode | null>(null);
 
+  const ownerKey = publicKey?.toBase58() ?? null;
+  // These eight follow the latest render. The copy is a layout effect, so
+  // the status effect, tick, and sign callbacks below still see this render
+  // before they run. Initial values are the first render's values.
   const predcaRef = useRef(predca);
-  predcaRef.current = predca;
   const connectedRef = useRef(connected);
-  connectedRef.current = connected;
-  const ownerRef = useRef(publicKey?.toBase58() ?? null);
-  ownerRef.current = publicKey?.toBase58() ?? null;
+  const ownerRef = useRef(ownerKey);
   const signMessageRef = useRef(signMessage);
-  signMessageRef.current = signMessage;
   const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
   const tRef = useRef(t);
-  tRef.current = t;
   const localeRef = useRef(locale);
-  localeRef.current = locale;
-  const nextAtRef = useRef<number | null>(null);
-  nextAtRef.current = nextAt;
+  const nextAtRef = useRef(nextAt);
+  useIsomorphicLayoutEffect(() => {
+    commitLatestRef(predcaRef, predca);
+    commitLatestRef(connectedRef, connected);
+    commitLatestRef(ownerRef, ownerKey);
+    commitLatestRef(signMessageRef, signMessage);
+    commitLatestRef(enabledRef, enabled);
+    commitLatestRef(tRef, t);
+    commitLatestRef(localeRef, locale);
+    commitLatestRef(nextAtRef, nextAt);
+  });
   const ignoreOffUntilRef = useRef(0);
   /** Bumped on every publicKey change — ignore in-flight status/tick/startCycle. */
   const statusEpochRef = useRef(0);
@@ -141,7 +151,6 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
   const enablePendingOwnerRef = useRef<string | null>(null);
   const enableBaselineRef = useRef<EnableStatusBaseline | null>(null);
 
-  const ownerKey = publicKey?.toBase58() ?? null;
   const signReady = typeof signMessage === "function";
 
   const resetBannerState = useCallback(() => {
@@ -156,7 +165,8 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
 
   useEffect(() => {
     const prev = prevOwnerRef.current;
-    if (prev && prev !== ownerKey) {
+    const ownerChanged = prev !== ownerKey;
+    if (prev && ownerChanged) {
       // Disconnect drops every wallet. A switch drops only the one we left.
       if (!ownerKey) clearStatusAuthCache();
       else clearStatusAuthCache(prev);
@@ -168,12 +178,17 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
     enablePendingRef.current = false;
     enablePendingOwnerRef.current = null;
     enableBaselineRef.current = null;
-    // Drop the previous owner's On immediately. Status below corrects it.
-    resetBannerState();
-    setPrefsReady(false);
-    setKeeperMode(null);
     cycleInFlight = false;
     if (ownerKey) ignoreOffUntilRef.current = Date.now() + 2000;
+    // Drop the previous owner's On immediately. Status below corrects it.
+    // The first paint already starts cleared, so an unchanged owner (the
+    // no-wallet mount) does not set state again. A real switch still resets
+    // in this effect, before the status fetch below.
+    if (ownerChanged) {
+      resetBannerState();
+      setPrefsReady(false);
+      setKeeperMode(null);
+    }
   }, [ownerKey, resetBannerState]);
 
   useEffect(() => {
@@ -262,8 +277,8 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
       setMessage("Budżet tygodniowy musi być > 0.");
       return;
     }
-    // Snapshot. ownerRef updates on the wallet-switch render, before the
-    // status effect bumps the epoch. Failed-cycle cleanup must keep this pubkey.
+    // Snapshot. The layout effect has already copied this render's pubkey.
+    // The owner effect bumps the epoch after that. Cleanup must keep this pubkey.
     const cycleOwner = ownerRef.current;
     if (!cycleOwner) {
       bannerHoldUntilRef.current = Date.now() + BANNER_HOLD_MS;

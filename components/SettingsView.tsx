@@ -61,6 +61,10 @@ import {
 } from "@/lib/weekly-budget";
 import { useAutoWeeklyBuy } from "@/lib/hooks/useAutoWeeklyBuy";
 import { useIsClient } from "@/lib/hooks/useIsClient";
+import {
+  commitLatestRef,
+  useIsomorphicLayoutEffect,
+} from "@/lib/hooks/useLatestRef";
 import { dcaApiBase, LS_TYPESAFE, LS_XAI, readTypesafeKey } from "@/lib/keys";
 import {
   formatWeeklyDraft,
@@ -123,8 +127,12 @@ export function SettingsView() {
   const autoBuy = useAutoWeeklyBuy();
   const { connected, publicKey } = useWallet();
   const signMessage = useKeeperSignMessage();
+  // Read in the prefs effect below, after this layout update. The first
+  // render's ref is already `signMessage`, so the first fetch is not empty.
   const signMessageRef = useRef(signMessage);
-  signMessageRef.current = signMessage;
+  useIsomorphicLayoutEffect(() => {
+    commitLatestRef(signMessageRef, signMessage);
+  });
   const { t } = useI18n();
   const [exclusions, setExclusions] = useState("");
   const [deadlineInvalid, setDeadlineInvalid] = useState(
