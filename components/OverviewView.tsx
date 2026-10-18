@@ -626,6 +626,8 @@ export function OverviewView() {
   const active = generated ?? (restored ? rankView(restored.rank, locale) : null);
   const top3 = active?.top3 ?? [];
   const top3Names = top3.map((row) => row.name).join("\u0001");
+  // previewBuy is a useCallback (no `this`). Depend on it, not the whole predca object.
+  const previewBuy = predca.previewBuy;
   useEffect(() => {
     const names = top3Names ? top3Names.split("\u0001") : [];
     if (!connected || !onChainReady || names.length < 3) {
@@ -633,7 +635,7 @@ export function OverviewView() {
       return;
     }
     let cancel = false;
-    void predca.previewBuy(names).then((legs) => {
+    void previewBuy(names).then((legs) => {
       if (cancel) return;
       if (legs.length === 0) {
         setBuyPreview(null);
@@ -658,7 +660,7 @@ export function OverviewView() {
     return () => {
       cancel = true;
     };
-  }, [connected, onChainReady, top3Names, predca.previewBuy, locale, t]);
+  }, [connected, onChainReady, top3Names, previewBuy, locale, t]);
   const top3Title = active?.title ?? null;
   const top3Subtitle = active?.subtitle ?? null;
   const premiumBasis = active?.premiumBasis ?? null;

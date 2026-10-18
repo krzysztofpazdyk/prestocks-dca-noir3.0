@@ -12,7 +12,6 @@
  * Lot price prefers the on-chain price; otherwise usdc spent / token amount.
  */
 
-import { BN } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { programId, runPricePda } from "@/lib/predca";
 import { readTimeoutMs, withTimeout } from "@/lib/rpc-timeout";

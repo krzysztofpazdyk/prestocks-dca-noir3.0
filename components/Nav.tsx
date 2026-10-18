@@ -7,6 +7,34 @@ import { clusterLabel } from "@/lib/predca";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 
+function LocaleBtn({
+  code,
+  locale,
+  setLocale,
+}: {
+  code: Locale;
+  locale: Locale;
+  setLocale: (next: Locale) => void;
+}) {
+  const active = locale === code;
+  return (
+    <button
+      type="button"
+      onClick={() => setLocale(code)}
+      aria-pressed={active}
+      className={`rounded px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase transition ${
+        active
+          ? code === "pl"
+            ? "bg-[#2dd4bf22] text-[#2dd4bf] border border-[#2dd4bf66]"
+            : "bg-[#a78bfa22] text-[#a78bfa] border border-[#a78bfa66]"
+          : "border border-transparent text-[#8b95a8] hover:text-[#e8eef5]"
+      }`}
+    >
+      {code.toUpperCase()}
+    </button>
+  );
+}
+
 export function Nav() {
   const pathname = usePathname();
   const { locale, setLocale, t } = useI18n();
@@ -21,26 +49,6 @@ export function Nav() {
     { href: "/ustawienia", label: t("nav.settings") },
     { href: "/historia", label: t("nav.history") },
   ];
-
-  function LocaleBtn({ code }: { code: Locale }) {
-    const active = locale === code;
-    return (
-      <button
-        type="button"
-        onClick={() => setLocale(code)}
-        aria-pressed={active}
-        className={`rounded px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase transition ${
-          active
-            ? code === "pl"
-              ? "bg-[#2dd4bf22] text-[#2dd4bf] border border-[#2dd4bf66]"
-              : "bg-[#a78bfa22] text-[#a78bfa] border border-[#a78bfa66]"
-            : "border border-transparent text-[#8b95a8] hover:text-[#e8eef5]"
-        }`}
-      >
-        {code.toUpperCase()}
-      </button>
-    );
-  }
 
   return (
     <header className="border-b border-[#1e2633] bg-[#0c0e12]/90 backdrop-blur sticky top-0 z-40">
@@ -85,8 +93,8 @@ export function Nav() {
               role="group"
               aria-label="Language"
             >
-              <LocaleBtn code="pl" />
-              <LocaleBtn code="en" />
+              <LocaleBtn code="pl" locale={locale} setLocale={setLocale} />
+              <LocaleBtn code="en" locale={locale} setLocale={setLocale} />
             </div>
           </div>
           {/* Mobile: show toggle without cluster */}
@@ -95,8 +103,8 @@ export function Nav() {
             role="group"
             aria-label="Language"
           >
-            <LocaleBtn code="pl" />
-            <LocaleBtn code="en" />
+            <LocaleBtn code="pl" locale={locale} setLocale={setLocale} />
+            <LocaleBtn code="en" locale={locale} setLocale={setLocale} />
           </div>
           {walletReady ? (
             <ConnectWalletButton />
