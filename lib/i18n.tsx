@@ -376,6 +376,11 @@ const pl: Dict = {
   "premium.below": "{pct} taniej niż wycena",
   "premium.atValuation": "{pct} — tyle, ile wycena",
   "premium.tooltip": "Różnica między ceną tokena a wyceną spółki z PreStocks",
+  "premium.spacex.label": "zniżka vs SPCXx",
+  "premium.spacex.value": "zniżka vs SPCXx {pct}",
+  "premium.spacex.noData": "brak danych",
+  "premium.spacex.tooltip":
+    "Różnica obejmuje 6-miesięczny lockup akcji bazowych (do ok. 12.12.2026) i opłatę konwersji ok. 1%, więc nie jest czystą premią IPO. Token PreStocks SPACEX wygasa 12.03.2027 23:59 UTC.",
   "premium.estimate": "szacunek",
   "rank.premiumBasis.server_estimate": "Ranking AI użył premii szacunkowych serwera (nie live). Token vs wycena przy spółkach: live z Jupitera.",
   "rank.premiumBasis.live": "Ranking użył premii live z Jupitera; spółki bez danych liczone bez premii.",
@@ -744,6 +749,11 @@ const en: Dict = {
   "premium.below": "{pct} below valuation",
   "premium.atValuation": "{pct} — at valuation",
   "premium.tooltip": "Difference between the token price and the company valuation from PreStocks",
+  "premium.spacex.label": "discount vs SPCXx",
+  "premium.spacex.value": "discount vs SPCXx {pct}",
+  "premium.spacex.noData": "no data",
+  "premium.spacex.tooltip":
+    "The difference includes a 6-month lockup of the underlying shares (until about 12 Dec 2026) and a conversion fee of about 1%, so it is not a pure IPO premium. The PreStocks SPACEX token expires 12 Mar 2027 23:59 UTC.",
   "premium.estimate": "estimate",
   "rank.premiumBasis.server_estimate": "AI ranking used the server's estimated premiums (not live). Token vs valuation shown next to each name is live from Jupiter.",
   "rank.premiumBasis.live": "Ranking used live Jupiter premiums; names without data scored without a premium.",

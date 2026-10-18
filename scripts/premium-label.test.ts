@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   formatPremiumPct,
   PREMIUM_TONE_CLASS,
+  premiumCopy,
   premiumKind,
   premiumTone,
 } from "../lib/premium-view";
@@ -106,6 +107,45 @@ test("token-vs-valuation copy replaces premium vs market", () => {
   assert.match(values(i18n, "premium.above")[0], /drożej/);
   assert.match(values(i18n, "premium.below")[0], /taniej/);
   assert.deepEqual(values(i18n, "premium.estimate"), ["szacunek", "estimate"]);
+  assert.deepEqual(values(i18n, "premium.spacex.label"), [
+    "zniżka vs SPCXx",
+    "discount vs SPCXx",
+  ]);
+  assert.deepEqual(values(i18n, "premium.spacex.value"), [
+    "zniżka vs SPCXx {pct}",
+    "discount vs SPCXx {pct}",
+  ]);
+  assert.deepEqual(values(i18n, "premium.spacex.noData"), ["brak danych", "no data"]);
+  const tip = values(i18n, "premium.spacex.tooltip");
+  assert.equal(tip.length, 2);
+  assert.match(tip[0], /6-miesięczny lockup/);
+  assert.match(tip[0], /12\.12\.2026/);
+  assert.match(tip[0], /ok\. 1%/);
+  assert.match(tip[0], /12\.03\.2027 23:59 UTC/);
+  assert.match(tip[0], /nie jest czystą premią IPO/);
+  assert.match(tip[1], /6-month lockup/);
+  assert.match(tip[1], /12 Dec 2026/);
+  assert.match(tip[1], /12 Mar 2027 23:59 UTC/);
+});
+
+test("SpaceX copy is a discount versus SPCXx and keeps the buyer colors", () => {
+  const live = premiumCopy("SpaceX", -15.5, false, "cell");
+  assert.equal(live.textKey, "premium.spacex.value");
+  assert.equal(live.tooltipKey, "premium.spacex.tooltip");
+  assert.equal(live.labelKey, "premium.spacex.label");
+  assert.equal(live.tone, "discount");
+  assert.equal(live.withPct, true);
+  assert.equal(premiumCopy("SpaceX", 4, false, "cell").tone, "premium");
+  const none = premiumCopy("SpaceX", null, false, "cell");
+  assert.equal(none.textKey, "premium.spacex.noData");
+  assert.equal(none.tone, "neutral");
+  assert.equal(none.withPct, false);
+  const other = premiumCopy("OpenAI", -2, false, "cell");
+  assert.equal(other.textKey, "premium.below");
+  assert.equal(other.tooltipKey, "premium.tooltip");
+  assert.equal(premiumCopy("SpaceX", -15.5, true, "inline").tone, "neutral");
+  assert.equal(premiumCopy("OpenAI", null, false, "cell").textKey, "positions.noData");
+  assert.equal(premiumCopy("OpenAI", null, false, "inline").textKey, "premium.noData");
 });
 
 test("Overview renders the verbal value with a tooltip and keeps livePremiumPct", () => {
@@ -118,8 +158,27 @@ test("Overview renders the verbal value with a tooltip and keeps livePremiumPct"
   assert.match(overview, /PREMIUM_TONE_CLASS\[premium\.tone\]/);
   assert.match(overview, /PREMIUM_TONE_CLASS\[tone\]/);
   assert.match(overview, /title=\{t\("premium\.tooltip"\)\}/);
+  assert.match(overview, /showsSpacexDiscount/);
+  const copySrc = readFileSync(
+    new URL("../lib/premium-view.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(copySrc, /premium\.spacex\.tooltip/);
+  assert.match(copySrc, /premium\.spacex\.value/);
+  assert.match(copySrc, /premium\.spacex\.noData/);
   const start = overview.indexOf("function premiumText");
   const fn = overview.slice(start, overview.indexOf("const pricesReady", start));
   assert.match(fn, /livePremiumPct/);
+  assert.match(fn, /premiumCopy/);
   assert.doesNotMatch(fn, /premium\.estimate/);
+  const panel = overview.slice(
+    overview.indexOf("function PricesPanel"),
+    overview.indexOf("function PositionsCard"),
+  );
+  assert.match(panel, /premiumCopy/);
+  assert.match(panel, /PREMIUM_TONE_CLASS\[tone\]/);
+  const positions = overview.slice(overview.indexOf("function PositionsCard"));
+  assert.match(positions, /premiumCopy/);
+  assert.match(positions, /showsSpacexDiscount/);
+  assert.match(positions, /PREMIUM_TONE_CLASS\[discount\.tone\]/);
 });

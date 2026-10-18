@@ -20,7 +20,7 @@ import { livePremiumPct } from "../lib/premium-view";
 import { buildProducts } from "../lib/prestocks";
 import { priceRows } from "../lib/price-rows";
 import { filterExpired, filterIpoCompleted } from "../lib/rank-prefs";
-import { MINTS, type PrestocksProduct } from "../lib/universe";
+import { MINTS, REFERENCE_MINTS, type PrestocksProduct } from "../lib/universe";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const FRESH = new Date(NOW - 60 * 60 * 1000).toISOString();
@@ -109,27 +109,30 @@ test("livePremiumPct matches the price panel, and stale SpaceX stock data is nul
 });
 
 test("metricsRank ignores hardcoded premiums and does not give SpaceX a near-IPO bonus", () => {
-  const live = buildProducts(
-    [],
-    parseJupResponse(
-      Object.fromEntries(
-        Object.values(MINTS).map((mint) => [
-          mint,
-          {
-            usdPrice: 80,
-            liquidity: 80_000,
-            stockData: {
-              id: "prestocks",
-              price: 100,
-              updatedAt: new Date(NOW - 3_600_000).toISOString(),
-            },
-          },
-        ]),
-      ),
-      NOW,
-    ),
-    NOW,
+  const liveRaw: Record<string, unknown> = Object.fromEntries(
+    Object.values(MINTS).map((mint) => [
+      mint,
+      {
+        usdPrice: 80,
+        liquidity: 80_000,
+        stockData: {
+          id: "prestocks",
+          price: 100,
+          updatedAt: new Date(NOW - 3_600_000).toISOString(),
+        },
+      },
+    ]),
   );
+  liveRaw[REFERENCE_MINTS.SpaceX.primary] = {
+    usdPrice: 100,
+    liquidity: 1_000_000,
+    stockData: {
+      id: "xstocks",
+      price: 167.16,
+      updatedAt: new Date(NOW - 3_600_000).toISOString(),
+    },
+  };
+  const live = buildProducts([], parseJupResponse(liveRaw, NOW), NOW);
   const ranked = metricsRank(live, [], PREFS_ON);
   const sx = ranked.scores.find((row) => row.name === "SpaceX");
   const anth = ranked.scores.find((row) => row.name === "Anthropic");

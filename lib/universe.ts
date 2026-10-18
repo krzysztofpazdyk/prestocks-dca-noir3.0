@@ -13,6 +13,19 @@ export const MINTS: Record<string, string> = {
   SpaceX: "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
 };
 
+/**
+ * Post-IPO reference tokens for the premium denominator.
+ * Not part of `MINTS`: they do not create products, price-panel rows, or ranks.
+ * SpaceX primary is xStocks SPCXx; backup is Backpack SPCX.
+ * Jupiter `usdPrice` is already on the post 5:1 split scale.
+ */
+export const REFERENCE_MINTS: Record<string, { primary: string; backup: string }> = {
+  SpaceX: {
+    primary: "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+    backup: "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb",
+  },
+};
+
 export const SYMBOL_BY_NAME: Record<string, string> = {
   Anthropic: "ANTHROPIC",
   OpenAI: "OPENAI",

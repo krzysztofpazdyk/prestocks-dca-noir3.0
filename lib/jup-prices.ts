@@ -1,21 +1,22 @@
 /**
- * Jupiter Price API v3 for the 8 mainnet PreStock mints.
+ * Jupiter Price API v3 for the 8 mainnet PreStock mints plus SpaceX reference mints.
  * One unauthenticated request. Failures return cache or empty quotes — never throw.
  * Always read `usdPrice` (UI unit). Never `scaledUiConfig.usdPricePrescaled`.
+ * SpaceX reference prices are SPCXx / SPCX `usdPrice` (already post 5:1 split).
  */
 
-import { MINTS } from "@/lib/universe";
+import { MINTS, REFERENCE_MINTS } from "@/lib/universe";
 
 export const JUP_PRICE_DEFAULT = "https://lite-api.jup.ag/price/v3";
-export const JUP_CACHE_KEY = "noir3.predca.jupPrices.v1";
+export const JUP_CACHE_KEY = "noir3.predca.jupPrices.v2";
 export const JUP_RETRY_MS = 2000;
 export const JUP_TIMEOUT_MS = 8000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /**
- * Maks. wiek stockData (cena referencyjna PreStocks z Jupitera), po którym premia = „brak danych”.
- * DECYZJA CHRISA (otwarta): 72 h. SpaceX stockData.updatedAt = 2026-10-08 09:20 UTC,
- * więc premia SpaceX przejdzie na „brak danych” ok. 2026-10-11 11:20 CEST.
+ * Maks. wiek wyceny, po którym premia = „brak danych”.
+ * Siedem spółek: `stockData.updatedAt` tokena PreStocks.
+ * SpaceX: `stockData.updatedAt` tokena SPCXx; gdy brak albo starszy niż 72 h — SPCX.
  */
 export const STOCK_DATA_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 const CACHE_MAX_AGE_MS = 7 * DAY_MS;
@@ -30,6 +31,13 @@ export type JupQuote = {
   usdPrice: number | null;
   stockPrice: number | null;
   stockUpdatedAt: number | null;
+  /** SPCXx `usdPrice`. Null when that mint is missing. Other names stay null. */
+  refUsdPrice: number | null;
+  /** SPCXx `stockData.updatedAt`. Null when missing. */
+  refUpdatedAt: number | null;
+  /** Backup SPCX `usdPrice`, used when SPCXx is missing or older than 72 h. */
+  refBackupUsdPrice: number | null;
+  refBackupUpdatedAt: number | null;
   liquidityUsd: number | null;
   multiplierChange: boolean;
 };
@@ -126,6 +134,30 @@ function multiplierChanging(scaled: unknown, now: number): boolean {
   return at > now || now - at < DAY_MS;
 }
 
+function referenceFor(
+  name: string,
+): { primary: string; backup: string } | undefined {
+  const want = canonicalName(name);
+  for (const [key, ref] of Object.entries(REFERENCE_MINTS)) {
+    if (canonicalName(key) === want) return ref;
+  }
+  return undefined;
+}
+
+/** Reference-token point. `usdPrice` only — never `stockData.price` (pre-split equity quote). */
+function referencePoint(row: unknown): { usdPrice: number | null; updatedAt: number | null } {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    return { usdPrice: null, updatedAt: null };
+  }
+  const rec = row as Record<string, unknown>;
+  let updatedAt: number | null = null;
+  const stock = rec.stockData;
+  if (stock && typeof stock === "object" && !Array.isArray(stock)) {
+    updatedAt = toMs((stock as Record<string, unknown>).updatedAt);
+  }
+  return { usdPrice: positive(rec.usdPrice), updatedAt };
+}
+
 function blankQuote(name: string, mint: string): JupQuote {
   return {
     mint,
@@ -133,6 +165,10 @@ function blankQuote(name: string, mint: string): JupQuote {
     usdPrice: null,
     stockPrice: null,
     stockUpdatedAt: null,
+    refUsdPrice: null,
+    refUpdatedAt: null,
+    refBackupUsdPrice: null,
+    refBackupUpdatedAt: null,
     liquidityUsd: null,
     multiplierChange: false,
   };
@@ -157,6 +193,10 @@ function parseOne(name: string, mint: string, row: unknown, now: number): JupQuo
     usdPrice: positive(rec.usdPrice),
     stockPrice,
     stockUpdatedAt,
+    refUsdPrice: null,
+    refUpdatedAt: null,
+    refBackupUsdPrice: null,
+    refBackupUpdatedAt: null,
     liquidityUsd: finiteNonNeg(rec.liquidity),
     multiplierChange: multiplierChanging(rec.scaledUiConfig, now),
   };
@@ -170,7 +210,17 @@ export function parseJupResponse(raw: unknown, now: number): Record<string, JupQ
       : {};
   const out: Record<string, JupQuote> = {};
   for (const [name, mint] of Object.entries(MINTS)) {
-    out[name] = parseOne(name, mint, src[mint], now);
+    const quote = parseOne(name, mint, src[mint], now);
+    const ref = referenceFor(name);
+    if (ref) {
+      const primary = referencePoint(src[ref.primary]);
+      const backup = referencePoint(src[ref.backup]);
+      quote.refUsdPrice = primary.usdPrice;
+      quote.refUpdatedAt = primary.updatedAt;
+      quote.refBackupUsdPrice = backup.usdPrice;
+      quote.refBackupUpdatedAt = backup.updatedAt;
+    }
+    out[name] = quote;
   }
   return out;
 }
@@ -185,13 +235,38 @@ export function emptyJupPrices(now = 0): JupPrices {
   };
 }
 
-/** null = „brak danych” (stale stock, multiplier, missing fields, or |premium| > 80). */
+function pricedWithin(
+  price: number | null,
+  updatedAt: number | null,
+  now: number,
+): number | null {
+  if (price == null || updatedAt == null) return null;
+  if (now - updatedAt > STOCK_DATA_MAX_AGE_MS) return null;
+  return price;
+}
+
+/**
+ * Denominator of the premium.
+ * SpaceX: fresh SPCXx `usdPrice`, else fresh SPCX. Never the frozen PreStocks stock quote.
+ * Other names: fresh PreStocks `stockData.price`.
+ */
+export function premiumBasisUsd(q: JupQuote, now: number): number | null {
+  if (referenceFor(q.name)) {
+    return (
+      pricedWithin(q.refUsdPrice, q.refUpdatedAt, now) ??
+      pricedWithin(q.refBackupUsdPrice, q.refBackupUpdatedAt, now)
+    );
+  }
+  return pricedWithin(q.stockPrice, q.stockUpdatedAt, now);
+}
+
+/** null = „brak danych” (stale reference, multiplier, missing fields, or |premium| > 80). */
 export function ipoPremiumPct(q: JupQuote, now: number): number | null {
-  if (q.usdPrice == null || q.stockPrice == null) return null;
-  if (q.stockUpdatedAt == null) return null;
-  if (now - q.stockUpdatedAt > STOCK_DATA_MAX_AGE_MS) return null;
+  if (q.usdPrice == null) return null;
   if (q.multiplierChange) return null;
-  const pct = (q.usdPrice / q.stockPrice - 1) * 100;
+  const basis = premiumBasisUsd(q, now);
+  if (basis == null) return null;
+  const pct = (q.usdPrice / basis - 1) * 100;
   if (!Number.isFinite(pct) || Math.abs(pct) > PREMIUM_ABS_MAX) return null;
   return pct;
 }
@@ -216,10 +291,18 @@ function relativeMove(prev: number, next: number): number {
   return Math.round(Math.abs(next / prev - 1) * 1_000_000) / 1_000_000;
 }
 
+function jupPriceIds(): string[] {
+  const ids = [
+    ...Object.values(MINTS),
+    ...Object.values(REFERENCE_MINTS).flatMap((ref) => [ref.primary, ref.backup]),
+  ];
+  return [...new Set(ids)];
+}
+
 export function jupPriceUrl(): string {
   const raw = process.env.NEXT_PUBLIC_JUP_PRICE_URL?.trim() || JUP_PRICE_DEFAULT;
   const base = raw.replace(/\/$/, "");
-  const ids = Object.values(MINTS).join(",");
+  const ids = jupPriceIds().join(",");
   if (/[?&]ids=/.test(base)) return base;
   const join = base.includes("?") ? "&" : "?";
   return `${base}${join}ids=${ids}`;
@@ -238,6 +321,8 @@ function sanitizeCachedQuote(name: string, mint: string, v: unknown): JupQuote {
   if (!v || typeof v !== "object" || Array.isArray(v)) return blankQuote(name, mint);
   const q = v as Partial<JupQuote>;
   const updated = q.stockUpdatedAt;
+  const refUpdated = q.refUpdatedAt;
+  const backupUpdated = q.refBackupUpdatedAt;
   return {
     mint: typeof q.mint === "string" && q.mint ? q.mint : mint,
     name,
@@ -245,6 +330,14 @@ function sanitizeCachedQuote(name: string, mint: string, v: unknown): JupQuote {
     stockPrice: positive(q.stockPrice),
     stockUpdatedAt:
       typeof updated === "number" && Number.isFinite(updated) ? updated : null,
+    refUsdPrice: positive(q.refUsdPrice),
+    refUpdatedAt:
+      typeof refUpdated === "number" && Number.isFinite(refUpdated) ? refUpdated : null,
+    refBackupUsdPrice: positive(q.refBackupUsdPrice),
+    refBackupUpdatedAt:
+      typeof backupUpdated === "number" && Number.isFinite(backupUpdated)
+        ? backupUpdated
+        : null,
     liquidityUsd: finiteNonNeg(q.liquidityUsd),
     multiplierChange: q.multiplierChange === true,
   };
@@ -403,7 +496,8 @@ function closeEnough(a: number, b: number): boolean {
 }
 
 /**
- * One request for 8 mints. A >30% jump vs a <24h cache is retried once after 2s.
+ * One request for the 8 PreStock mints and the SpaceX reference mints.
+ * A >30% jump vs a <24h cache is retried once after 2s.
  * Timeout, HTTP error, or bad JSON returns cache (max 7 days) or null prices.
  */
 export async function fetchJupPrices(opts?: FetchJupOptions): Promise<JupPrices> {

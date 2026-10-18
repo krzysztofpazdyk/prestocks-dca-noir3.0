@@ -54,8 +54,8 @@ import {
   formatPremiumPct,
   livePremiumPct,
   PREMIUM_TONE_CLASS,
-  premiumKind,
-  premiumTone,
+  premiumCopy,
+  showsSpacexDiscount,
   type PremiumTone,
 } from "@/lib/premium-view";
 import { fetchPrestocksProducts, PRESTOCKS_SNAPSHOT_DATE } from "@/lib/prestocks";
@@ -704,24 +704,29 @@ export function OverviewView() {
     });
   }
 
-  function premiumText(name: string): { text: string; tone: PremiumTone } {
+  function premiumText(name: string): {
+    text: string;
+    tone: PremiumTone;
+    tooltipKey: string;
+    labelKey: string;
+  } {
     const pct = livePremiumPct(name, predca.jupPrices);
     const stale =
       predca.jupPrices.source === "cache" ||
       predca.jupPrices.carried.some(
         (rowName) => canonicalName(rowName) === canonicalName(name),
       );
-    const tone = premiumTone(pct, stale);
-    const kind = premiumKind(pct);
-    if (kind === "none" || pct == null) return { text: t("premium.noData"), tone };
-    const pctText = formatPremiumPct(pct, locale);
-    const key =
-      kind === "above"
-        ? "premium.above"
-        : kind === "below"
-          ? "premium.below"
-          : "premium.atValuation";
-    return { text: t(key, { pct: pctText }), tone };
+    const copy = premiumCopy(name, pct, stale, "inline");
+    const text =
+      copy.withPct && pct != null
+        ? t(copy.textKey, { pct: formatPremiumPct(pct, locale) })
+        : t(copy.textKey);
+    return {
+      text,
+      tone: copy.tone,
+      tooltipKey: copy.tooltipKey,
+      labelKey: copy.labelKey,
+    };
   }
 
   const pricesReady = predca.jupPrices.fetchedAt > 0;
@@ -1268,8 +1273,8 @@ export function OverviewView() {
                     {" · "}
                     <span
                       className={PREMIUM_TONE_CLASS[premium.tone]}
-                      title={t("premium.tooltip")}
-                      aria-label={`${t("premium.label")}: ${premium.text}`}
+                      title={t(premium.tooltipKey)}
+                      aria-label={`${t(premium.labelKey)}: ${premium.text}`}
                     >
                       {premium.text}
                     </span>
@@ -1512,19 +1517,12 @@ function PricesPanel({
                       <Badge key={flag}>{statusLabel(flag, t, badgeClock(row.name))}</Badge>
                     ));
                   const stale = row.flags.includes("cache");
-                  const kind = premiumKind(row.premiumPct);
-                  const tone = premiumTone(row.premiumPct, stale);
+                  const copy = premiumCopy(row.name, row.premiumPct, stale, "cell");
+                  const tone = copy.tone;
                   const phrase =
-                    row.premiumPct == null || kind === "none"
-                      ? t("positions.noData")
-                      : t(
-                          kind === "above"
-                            ? "premium.above"
-                            : kind === "below"
-                              ? "premium.below"
-                              : "premium.atValuation",
-                          { pct: fmtPanelPct(row.premiumPct, locale) },
-                        );
+                    copy.withPct && row.premiumPct != null
+                      ? t(copy.textKey, { pct: fmtPanelPct(row.premiumPct, locale) })
+                      : t(copy.textKey);
                   return (
                     <tr key={row.name} className="border-t border-[#1e2633] align-top">
                       <td className="py-2 pr-3 text-[#c5cedb]">
@@ -1538,7 +1536,7 @@ function PricesPanel({
                       </td>
                       <td
                         className={`mono-num py-2 pr-3 ${PREMIUM_TONE_CLASS[tone]}`}
-                        title={t("premium.tooltip")}
+                        title={t(copy.tooltipKey)}
                       >
                         {phrase}
                       </td>
@@ -1659,6 +1657,17 @@ function PositionsCard({
               const suspect = prices.suspect.some(
                 (name) => canonicalName(name) === canonicalName(row.name),
               );
+              const priceStale =
+                prices.source === "cache" ||
+                prices.carried.some(
+                  (name) => canonicalName(name) === canonicalName(row.name),
+                );
+              const discountPct = livePremiumPct(row.name, prices);
+              const discount = premiumCopy(row.name, discountPct, priceStale, "cell");
+              const discountText =
+                discount.withPct && discountPct != null
+                  ? t(discount.textKey, { pct: formatPremiumPct(discountPct, locale) })
+                  : t(discount.textKey);
               const pnlPos = row.pnlUsd != null && row.pnlUsd > 0;
               const pnlNeg = row.pnlUsd != null && row.pnlUsd < 0;
               let pnlClass = "text-[#8b95a8]";
@@ -1686,6 +1695,15 @@ function PositionsCard({
                     {row.mismatch && (
                       <p className="mt-1 text-[10px] text-[#fbbf24]">
                         {t("positions.mismatch")}
+                      </p>
+                    )}
+                    {showsSpacexDiscount(row.name) && (
+                      <p
+                        className={`mt-1 ${PREMIUM_TONE_CLASS[discount.tone]}`}
+                        title={t(discount.tooltipKey)}
+                        aria-label={`${t(discount.labelKey)}: ${discountText}`}
+                      >
+                        {discountText}
                       </p>
                     )}
                   </td>

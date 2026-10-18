@@ -13,6 +13,7 @@ import {
   canonicalName,
   fetchJupPrices,
   ipoPremiumPct,
+  premiumBasisUsd,
   quoteByName,
   readJupPriceCache,
   type JupPrices,
@@ -142,13 +143,14 @@ export function buildProducts(
     const quote = quotes[name];
     const tokenPrice = positivePrice(m.tokenPrice) ?? quote?.usdPrice ?? null;
     const premium = quote ? ipoPremiumPct(quote, now) : null;
+    const basis = quote ? premiumBasisUsd(quote, now) : null;
     let premium_pct: number;
     let premium_source: string;
     let markOut: number | null = null;
-    if (premium != null && quote?.stockPrice != null) {
+    if (premium != null && basis != null) {
       premium_pct = premium;
       premium_source = "jupiter_stockdata";
-      markOut = quote.stockPrice;
+      markOut = basis;
     } else {
       premium_pct = HARDCODED_PREMIUMS_PCT[name] ?? 0;
       premium_source = "hardcoded_fallback";
@@ -179,6 +181,7 @@ export function buildProducts(
 /**
  * Overlay a Jupiter quote onto products that already exist (API proxy or snapshot).
  * Premium and mark move only when `ipoPremiumPct` is a number.
+ * SpaceX mark is the post-IPO reference (SPCXx, else SPCX), not the frozen stock quote.
  * `replaceTokenPrice` writes `usdPrice` even when the product already has one
  * (snapshot cache restore). Otherwise token price is filled only when missing.
  */
@@ -198,8 +201,9 @@ export function applyJupPremiums(
       changed = true;
     }
     const premium = ipoPremiumPct(q, now);
-    if (premium != null && q.stockPrice != null) {
-      next.mark_price_usd = round6(q.stockPrice);
+    const basis = premiumBasisUsd(q, now);
+    if (premium != null && basis != null) {
+      next.mark_price_usd = round6(basis);
       next.premium_pct = round3(premium);
       next.premium_source = "jupiter_stockdata";
       changed = true;
