@@ -72,6 +72,15 @@ export function premiumCopy(
       withPct: false,
     };
   }
+  if (spacex && kind === "above") {
+    return {
+      textKey: "premium.spacex.premium",
+      tooltipKey,
+      labelKey: "premium.spacex.premiumLabel",
+      tone,
+      withPct: true,
+    };
+  }
   const textKey = spacex
     ? "premium.spacex.value"
     : kind === "above"

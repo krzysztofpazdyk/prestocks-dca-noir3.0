@@ -19,6 +19,10 @@ export type PredcaSnapshot = {
   tokenBalances: MockTokenBalance[];
   runs: RunRecordData[];
   rpcError: string | null;
+  /** i18n key. Token ATA read failed softly; previous balances stay. */
+  balanceWarning?: string | null;
+  /** i18n key. At least one run has no confirmed RunPrice yet. */
+  priceWarning?: string | null;
 };
 
 export const EMPTY_SNAPSHOT: PredcaSnapshot = {
@@ -40,6 +44,8 @@ export type RefreshOutcome =
       ownerUsdc: number | null;
       solBalance: number | null;
       tokenBalances: MockTokenBalance[];
+      /** Keep `prev.tokenBalances` and set a non-blocking warning. */
+      tokenBalancesStale?: boolean;
       runs: RunRecordData[];
     }
   | { ok: false; error: string };
@@ -58,9 +64,11 @@ export function nextSnapshotAfterRefresh(
     vaultUsdc: outcome.vaultUsdc,
     ownerUsdc: outcome.ownerUsdc,
     solBalance: outcome.solBalance,
-    tokenBalances: outcome.tokenBalances,
+    tokenBalances: outcome.tokenBalancesStale ? prev.tokenBalances : outcome.tokenBalances,
     runs: outcome.runs,
     rpcError: null,
+    balanceWarning: outcome.tokenBalancesStale ? "balances.warning" : null,
+    priceWarning: null,
   };
 }
 

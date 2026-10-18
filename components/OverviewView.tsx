@@ -269,8 +269,14 @@ export function OverviewView() {
     connected && predca.solBalance != null ? predca.solBalance : null;
   const displayOwnerUsdc =
     connected && predca.ownerUsdc != null ? predca.ownerUsdc : null;
+  const portfolioUnknown =
+    connected &&
+    (Boolean(predca.priceWarning) ||
+      predca.positions.some((row) => row.valueKnown === false));
   const displayPortfolioUsd =
-    connected && predca.portfolioUsd != null ? predca.portfolioUsd : null;
+    connected && !portfolioUnknown && predca.portfolioUsd != null
+      ? predca.portfolioUsd
+      : null;
 
   // Connected: on-chain ATAs for ALL mints in devnet-mock-mints (via allMockMints).
   // Disconnected: holdings stay empty; never render the mock allocation pie.
@@ -738,7 +744,9 @@ export function OverviewView() {
     : "";
   const allAtCost =
     predca.positions.length > 0 &&
-    predca.positions.every((row) => row.basis === "cost");
+    predca.positions.every(
+      (row) => row.basis === "cost" && row.valueKnown !== false,
+    );
   const showPnl = connected && predca.positions.length > 0;
 
   const vaultStat =
@@ -1134,7 +1142,9 @@ export function OverviewView() {
           },
           {
             label: t("tile.portfolioPreStock"),
-            value: fmtTile(displayPortfolioUsd, 0),
+            value: portfolioUnknown
+              ? t("runPrice.unknown")
+              : fmtTile(displayPortfolioUsd, 0),
             unit: "USD",
           },
         ].map((c) => (
@@ -1162,6 +1172,10 @@ export function OverviewView() {
           {pricesReady && !predca.pricesLoading && !anyTokenPrice && (
             <p>{t("prices.unavailable")}</p>
           )}
+          {portfolioUnknown && <p>{t("runPrice.loading")}</p>}
+          {connected && predca.balanceWarning ? (
+            <p className="text-[#fbbf24]">{t(predca.balanceWarning)}</p>
+          ) : null}
           {allAtCost &&
             !(connected && predca.positions.length > 0 && !pnlSummary(predca.positions).hasPriced) && (
               <p>{t("positions.legacyHint")}</p>
@@ -1365,16 +1379,27 @@ export function OverviewView() {
                   </p>
                   <p>
                     <span className="text-[#8b95a8]">{t("lastPurchase.budget")} </span>
-                    <span className="mono-num text-[#2dd4bf]">
-                      ${displayLastPurchase.amountUsd.toFixed(2)}
-                    </span>
-                    <span className="text-[#8b95a8]">
-                      {" "}
-                      {t("lastPurchase.perToken", {
-                        amount: Number(displayLastPurchase.perTokenUsd).toFixed(2),
-                      })}
-                    </span>
+                    {predca.lastPurchaseOnChain?.priceKnown === false ? (
+                      <span className="mono-num text-[#8b95a8]">
+                        {t("runPrice.unknown")}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="mono-num text-[#2dd4bf]">
+                          ${displayLastPurchase.amountUsd.toFixed(2)}
+                        </span>
+                        <span className="text-[#8b95a8]">
+                          {" "}
+                          {t("lastPurchase.perToken", {
+                            amount: Number(displayLastPurchase.perTokenUsd).toFixed(2),
+                          })}
+                        </span>
+                      </>
+                    )}
                   </p>
+                  {predca.lastPurchaseOnChain?.priceKnown === false ? (
+                    <p className="text-[10px] text-[#8b95a8]">{t("runPrice.loading")}</p>
+                  ) : null}
                   <p>
                     <span className="text-[#8b95a8]">{t("lastPurchase.bought")} </span>
                     {displayLastPurchase.tokens
@@ -1592,6 +1617,13 @@ function PnlSection({
         <p className={`mono-num text-lg ${pnlClass}`}>
           {t("pnl.total")} {money}
         </p>
+      ) : rows.some((row) => row.valueKnown === false) ? (
+        <p className="mono-num text-sm text-[#c5cedb]">
+          {t("runPrice.unknown")}
+          <span className="mt-1 block text-[10px] text-[#8b95a8]">
+            {t("runPrice.loading")}
+          </span>
+        </p>
       ) : (
         <p className="mono-num text-sm text-[#c5cedb]">
           {t("pnl.atCostValue", { value: atCost ?? t("positions.noData") })}
@@ -1600,6 +1632,9 @@ function PnlSection({
       {summary.hasUnpricedV2 && (
         <p className="mt-1 text-[10px] text-[#8b95a8]">{t("pnl.noPriceNote")}</p>
       )}
+      {rows.some((row) => row.valueKnown === false) && money ? (
+        <p className="mt-1 text-[10px] text-[#8b95a8]">{t("runPrice.loading")}</p>
+      ) : null}
       {!summary.hasPriced && summary.hasLegacy && (
         <p className="mt-1 text-[10px] text-[#8b95a8]">{t("pnl.legacyNote")}</p>
       )}
@@ -1674,17 +1709,23 @@ function PositionsCard({
               if (pnlPos) pnlClass = "text-[#34d399]";
               else if (pnlNeg) pnlClass = "text-[#f87171]";
               const lowLiq = Boolean(quote && isLowLiquidity(quote));
+              const valueUnknown = row.valueKnown === false;
               const showBadges =
-                row.basis === "cost" || suspect || lowLiq || Boolean(quote?.multiplierChange);
+                (row.basis === "cost" && !valueUnknown) ||
+                valueUnknown ||
+                suspect ||
+                lowLiq ||
+                Boolean(quote?.multiplierChange);
               return (
                 <tr key={row.name} className="border-t border-[#1e2633] align-top">
                   <td className="py-2 pr-3 text-[#c5cedb]">
                     <div>{row.name}</div>
                     {showBadges && (
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {row.basis === "cost" && (
+                        {row.basis === "cost" && !valueUnknown && (
                           <Badge>{t("positions.atCost")}</Badge>
                         )}
+                        {valueUnknown && <Badge>{t("runPrice.loading")}</Badge>}
                         {suspect && <Badge>{t("prices.suspect")}</Badge>}
                         {lowLiq && <Badge>{t("prices.lowLiquidity")}</Badge>}
                         {quote?.multiplierChange && (
@@ -1714,13 +1755,19 @@ function PositionsCard({
                     {fmtUsdAmount(row.priceNow, locale) ?? t("positions.noData")}
                   </td>
                   <td className="mono-num py-2 pr-3 text-[#2dd4bf]">
-                    {fmtUsdAmount(row.valueUsd, locale) ?? t("positions.noData")}
+                    {valueUnknown
+                      ? t("runPrice.unknown")
+                      : (fmtUsdAmount(row.valueUsd, locale) ?? t("positions.noData"))}
                   </td>
                   <td className="mono-num hidden py-2 pr-3 sm:table-cell">
-                    {fmtUsdAmount(row.avgBuyPrice, locale) ?? "—"}
+                    {valueUnknown
+                      ? t("runPrice.unknown")
+                      : (fmtUsdAmount(row.avgBuyPrice, locale) ?? "—")}
                   </td>
                   <td className={`mono-num py-2 ${pnlClass}`}>
-                    {positionPnlKind(row) === "legacy" ? (
+                    {valueUnknown ? (
+                      t("runPrice.unknown")
+                    ) : positionPnlKind(row) === "legacy" ? (
                       <span title={t("pnl.legacyNote")}>—</span>
                     ) : positionPnlKind(row) === "nodata" ? (
                       t("positions.noData")

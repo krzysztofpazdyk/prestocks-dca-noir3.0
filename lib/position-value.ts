@@ -11,6 +11,14 @@ import {
   type JupPrices,
   type JupQuote,
 } from "@/lib/jup-prices";
+import { effectiveRunPricePresence } from "@/lib/run-price";
+
+/**
+ * `priced` — RunPrice decoded. `legacy` — confirmed missing account (1:1).
+ * `unknown` — read missing or failed, or a young run whose account is not
+ * confirmed yet. Unknown must not be marked at $1 per token.
+ */
+export type LotPriceState = "priced" | "legacy" | "unknown";
 
 export type RunLot = {
   name: string;
@@ -23,6 +31,8 @@ export type RunLot = {
   units: number | null;
   /** RunPrice.prices_e6[i] / 1e6. null = legacy. */
   buyPrice: number | null;
+  /** Absent on older callers: units set → priced, otherwise legacy. */
+  priceState?: LotPriceState;
 };
 
 export type RunLotSource = {
@@ -62,6 +72,8 @@ export type PositionRow = {
   basis: "market" | "cost" | "mixed";
   stale: boolean;
   mismatch: boolean;
+  /** False when a v2 buy price is still unknown. Absent means known. */
+  valueKnown?: boolean;
 };
 
 export const DUST = 0.000001;
@@ -86,18 +98,38 @@ function isPricedRun(dec: DecodedLots): boolean {
 
 /**
  * RunRecord legs + optional RunPrice.
- * No decoded account → legacy 1:1 (units null, amounts are both tokens and USDC).
- * predca 3.0: RunRecord.amounts are minted token base units. USDC spent and the
- * buy price come from RunPrice (on-chain price, else usdc / amount).
+ * Confirmed missing account (map value null, run older than ~60s) → legacy 1:1.
+ * No map entry, a failed read, or a young run without a decoded account → unknown
+ * (not $1 per token). predca 3.0 amounts are minted token base units; USDC spent
+ * and the buy price come from RunPrice.
  */
 export function runLots(
   runs: RunLotSource[],
   decoded: ReadonlyMap<number, DecodedLots | null>,
+  nowMs = Date.now(),
 ): RunLot[] {
   const lots: RunLot[] = [];
   for (const run of runs) {
-    const dec = decoded.get(run.runIndex) ?? null;
+    const presence = effectiveRunPricePresence(decoded, run.runIndex, run.ts, nowMs);
     const n = Math.max(run.mints.length, run.amountsUsd.length);
+    if (presence === "unknown") {
+      for (let i = 0; i < n; i++) {
+        const devnetMint = run.mints[i] ?? "";
+        if (!devnetMint) continue;
+        lots.push({
+          name: nameByMint(devnetMint) ?? devnetMint,
+          devnetMint,
+          runIndex: run.runIndex,
+          ts: run.ts,
+          usdcCost: 0,
+          units: null,
+          buyPrice: null,
+          priceState: "unknown",
+        });
+      }
+      continue;
+    }
+    const dec = presence === "decoded" ? (decoded.get(run.runIndex) ?? null) : null;
     for (let i = 0; i < n; i++) {
       const devnetMint = run.mints[i] ?? "";
       if (!devnetMint) continue;
@@ -143,10 +175,18 @@ export function runLots(
         usdcCost: Number.isFinite(usdcCost) ? usdcCost : 0,
         units,
         buyPrice,
+        priceState: units != null ? "priced" : "legacy",
       });
     }
   }
   return lots;
+}
+
+function lotState(lot: RunLot): LotPriceState {
+  if (lot.priceState === "unknown" || lot.priceState === "priced" || lot.priceState === "legacy") {
+    return lot.priceState;
+  }
+  return lot.units != null ? "priced" : "legacy";
 }
 
 function listed(names: string[], name: string): boolean {
@@ -181,6 +221,31 @@ export function buildPositions(
     if (seen.has(key)) continue;
     seen.add(key);
     const group = lotsByName.get(key) ?? [];
+    const quote: JupQuote | undefined = quoteByName(prices.quotes, bal.name);
+    const priceNow = quote?.usdPrice ?? null;
+    const stale =
+      prices.source === "cache" ||
+      listed(prices.suspect, bal.name) ||
+      listed(prices.carried ?? [], bal.name);
+    if (group.some((lot) => lotState(lot) === "unknown")) {
+      rows.push({
+        name: bal.name,
+        units: bal.amount,
+        costUsd: 0,
+        pricedUnits: 0,
+        legacyCostUsd: 0,
+        priceNow,
+        valueUsd: 0,
+        pnlUsd: null,
+        pnlPct: null,
+        avgBuyPrice: null,
+        basis: "cost",
+        stale,
+        mismatch: false,
+        valueKnown: false,
+      });
+      continue;
+    }
     let pricedUnits = 0;
     let v2Cost = 0;
     let legacyCost = 0;
@@ -208,15 +273,8 @@ export function buildPositions(
       }
     }
 
-    const quote: JupQuote | undefined = quoteByName(prices.quotes, bal.name);
-    const priceNow = quote?.usdPrice ?? null;
     const v2Active = pricedUnits > DUST;
     const legacyActive = legacyCost > DUST;
-    const stale =
-      prices.source === "cache" ||
-      listed(prices.suspect, bal.name) ||
-      listed(prices.carried ?? [], bal.name);
-
     let valueUsd: number;
     let pnlUsd: number | null;
     let pnlPct: number | null;
@@ -248,6 +306,7 @@ export function buildPositions(
       basis,
       stale,
       mismatch,
+      valueKnown: true,
     });
   }
 
@@ -374,6 +433,36 @@ export function runPnl(
 export function portfolioValue(vaultUsdc: number, rows: PositionRow[]): number {
   const vault = Number.isFinite(vaultUsdc) ? vaultUsdc : 0;
   return rows.reduce((sum, row) => sum + (Number.isFinite(row.valueUsd) ? row.valueUsd : 0), vault);
+}
+
+/** Null when any row's buy price is unknown — never a silent $1 mark. */
+export function portfolioUsdKnown(vaultUsdc: number, rows: PositionRow[]): number | null {
+  if (rows.some((row) => row.valueKnown === false)) return null;
+  return portfolioValue(vaultUsdc, rows);
+}
+
+/**
+ * True when every lot is priced or legacy and each name's balance is at least
+ * the sum of lot units (v2 units, or legacy cost at 1:1). Unknown lots fail.
+ */
+export function tokenBalancesCoverLots(lots: RunLot[], balances: TokenAmount[]): boolean {
+  const expected = new Map<string, number>();
+  for (const lot of lots) {
+    if (lotState(lot) === "unknown") return false;
+    const key = canonicalName(lot.name);
+    const units = lot.units != null ? lot.units : lot.usdcCost;
+    expected.set(key, (expected.get(key) ?? 0) + (Number.isFinite(units) ? units : 0));
+  }
+  for (const [name, exp] of expected) {
+    if (!(exp > DUST)) continue;
+    let bal = 0;
+    for (const row of balances) {
+      if (canonicalName(row.name) === name) bal += row.amount;
+    }
+    const scale = Math.max(Math.abs(exp), Math.abs(bal), 1);
+    if (bal + DUST * scale < exp) return false;
+  }
+  return true;
 }
 
 /** Pie weights from USD value. Same remainder fix as the old unit weights. */

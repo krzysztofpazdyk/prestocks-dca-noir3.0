@@ -14,7 +14,7 @@ import {
 } from "@/lib/predca";
 import { fmtSignedPnl, fmtUsdAmount } from "@/lib/format-usd";
 import { runPnl } from "@/lib/position-value";
-import { historyView } from "@/lib/history-view";
+import { historyBudgetUsd, historyLegUsd, historyView } from "@/lib/history-view";
 import { useI18n } from "@/lib/i18n";
 
 function mintLabel(mint: RunRecordData["mints"][number]): string {
@@ -26,11 +26,12 @@ function mintLabel(mint: RunRecordData["mints"][number]): string {
 function runBudgetUsd(
   run: RunRecordData,
   slots: Array<{ usdc?: number } | null> | null | undefined,
-): number {
-  if (slots?.some((slot) => slot?.usdc != null)) {
-    return run.mints.reduce((sum, _, i) => sum + (slots[i]?.usdc ?? 0), 0);
-  }
-  return run.amounts.reduce((sum, amount) => sum + rawToDollars(amount), 0);
+  priceState: "priced" | "legacy" | "unknown",
+): number | null {
+  const legs = run.mints.map((_, i) =>
+    historyLegUsd(priceState, slots?.[i]?.usdc, rawToDollars(run.amounts[i])),
+  );
+  return historyBudgetUsd(priceState, legs);
 }
 
 function fmtUnits(n: number): string {
@@ -110,18 +111,25 @@ export function HistoryView() {
             const fill = predca.runFills.find(
               (row) => row.runIndex === run.runIndex.toString(),
             );
-            const budget = runBudgetUsd(run, fill?.slots);
+            const priceState = fill?.priceState ?? "unknown";
+            const budget = runBudgetUsd(run, fill?.slots, priceState);
             const names = run.mints.map((m) => mintLabel(m));
-            const usdcEach = run.mints.map((_, i) => {
-              const spent = fill?.slots?.[i]?.usdc;
-              return spent != null ? spent : rawToDollars(run.amounts[i]);
-            });
-            const pnl = runPnl(
-              fill?.slots ?? null,
-              usdcEach,
-              predca.jupPrices.quotes,
-              names,
+            const usdcEach = run.mints.map((_, i) =>
+              historyLegUsd(
+                priceState,
+                fill?.slots?.[i]?.usdc,
+                rawToDollars(run.amounts[i]),
+              ),
             );
+            const pnl =
+              priceState === "unknown"
+                ? null
+                : runPnl(
+                    fill?.slots ?? null,
+                    usdcEach.map((n) => (n == null ? Number.NaN : n)),
+                    predca.jupPrices.quotes,
+                    names,
+                  );
             const runPnlText =
               pnl?.totalPnlUsd != null
                 ? fmtSignedPnl(pnl.totalPnlUsd, pnl.totalPnlPct, locale)
@@ -144,12 +152,21 @@ export function HistoryView() {
                       {formatTs(run.ts)}
                     </p>
                     <p className="text-xs text-[#8b95a8]">
-                      {t("history.runMeta", {
-                        index: run.runIndex.toString(),
-                        budget: formatUsd(budget),
-                        slot: run.slot.toString(),
-                      })}
+                      {priceState === "unknown"
+                        ? t("history.runMetaUnknown", {
+                            index: run.runIndex.toString(),
+                            unknown: t("runPrice.unknown"),
+                            slot: run.slot.toString(),
+                          })
+                        : t("history.runMeta", {
+                            index: run.runIndex.toString(),
+                            budget: formatUsd(budget ?? 0),
+                            slot: run.slot.toString(),
+                          })}
                     </p>
+                    {priceState === "unknown" ? (
+                      <p className="text-[10px] text-[#8b95a8]">{t("runPrice.loading")}</p>
+                    ) : null}
                     {runPnlText && (
                       <p className={`mono-num text-xs ${runClass}`}>
                         {t("history.runPnl", { pnl: runPnlText })}
@@ -171,7 +188,9 @@ export function HistoryView() {
                     >
                       <span className="text-[#c5cedb]">{mintLabel(m)}</span>
                       <span className="mono-num ml-2 text-[#8b95a8]">
-                        ${formatUsd(usdcEach[i])}
+                        {usdcEach[i] == null
+                          ? t("runPrice.unknown")
+                          : `$${formatUsd(usdcEach[i])}`}
                       </span>
                       {slot ? (
                         <span className="mono-num mt-0.5 block text-[10px] text-[#8b95a8]">

@@ -23,16 +23,22 @@ import {
   tryEnterManualBuy,
 } from "@/lib/manual-buy-guard";
 import {
+  CHAIN_POLL_MS,
+  buyRefreshSettled,
+  chainPollDecision,
+  commitRefreshRead,
+  refreshCallDecision,
   loadJupPricesInBackground,
   refreshPrices as refreshPricesOnly,
   refreshWriteStillCurrent,
+  retryRefresh,
+  vaultMoved,
 } from "@/lib/predca-refresh";
 import {
   EMPTY_SNAPSHOT,
   RPC_READ_ERROR_MSG,
   depositPlan,
   derivePredcaStatus,
-  nextSnapshotAfterRefresh,
   type PredcaSnapshot,
   type PredcaStatus,
 } from "@/lib/predca-status";
@@ -81,13 +87,18 @@ import {
 } from "@/lib/price-feed";
 import {
   buildPositions,
-  portfolioValue,
+  portfolioUsdKnown,
   runLots,
   valueWeights,
   type RunLotSource,
 } from "@/lib/position-value";
 import { fillsFor, type RunFillView } from "@/lib/run-fills";
-import { fetchRunPrices, mergeRunPrices, type DecodedRunPrice } from "@/lib/run-price";
+import {
+  effectiveRunPricePresence,
+  fetchRunPrices,
+  type DecodedRunPrice,
+  type RunPricePresence,
+} from "@/lib/run-price";
 import type { Holding } from "@/lib/mock-data";
 import {
   allMockMints,
@@ -120,6 +131,7 @@ import {
   RUN_INDEX_TAKEN_MSG,
   usdcMintOrNull,
   type RunRecordData,
+  type TokenBalanceRead,
 } from "@/lib/predca";
 
 export type { PredcaStatus } from "@/lib/predca-status";
@@ -133,6 +145,13 @@ export type OnChainLastPurchase = {
   tokenAmounts: number[];
   runIndex: number;
   ts: number;
+  /** False when RunPrice is unknown — do not show token units as dollars. */
+  priceKnown: boolean;
+};
+
+type RefreshCommit = {
+  snapshot: PredcaSnapshot;
+  prices: Map<number, DecodedRunPrice | null>;
 };
 
 export type BuyPreviewLeg = {
@@ -166,6 +185,7 @@ function runSources(runs: RunRecordData[]): RunLotSource[] {
 
 function runToLastPurchase(
   run: RunRecordData,
+  presence: RunPricePresence,
   dec: DecodedRunPrice | null,
 ): OnChainLastPurchase {
   const tokenAmounts = run.amounts.map((a) => rawToDollars(a));
@@ -185,14 +205,23 @@ function runToLastPurchase(
     "toNumber" in run.runIndex
       ? (run.runIndex as BN).toNumber()
       : Number(run.runIndex ?? 0);
+  const priceKnown = presence !== "unknown";
   const spent =
-    dec && dec.usdcSpentEach > BigInt(0) ? Number(dec.usdcSpentEach) / 1e6 : null;
-  const amountUsd =
-    spent != null
+    priceKnown && dec && dec.usdcSpentEach > BigInt(0)
+      ? Number(dec.usdcSpentEach) / 1e6
+      : null;
+  const amountUsd = !priceKnown
+    ? 0
+    : spent != null
       ? spent * Math.max(tokenAmounts.length, 1)
       : tokenAmounts.reduce((sum, amount) => sum + amount, 0);
-  const perTokenUsd =
-    spent != null ? spent : tokens.length > 0 ? amountUsd / tokens.length : 0;
+  const perTokenUsd = !priceKnown
+    ? 0
+    : spent != null
+      ? spent
+      : tokens.length > 0
+        ? amountUsd / tokens.length
+        : 0;
   return {
     date: formatTs(run.ts),
     amountUsd,
@@ -201,6 +230,7 @@ function runToLastPurchase(
     tokenAmounts,
     runIndex,
     ts,
+    priceKnown,
   };
 }
 
@@ -293,6 +323,8 @@ function usePredcaImpl() {
     tokenBalances,
     runs,
     rpcError,
+    balanceWarning,
+    priceWarning,
   } = snapshot;
   const [loading, setLoading] = useState(false);
   const [unresolvedTxs, setUnresolvedTxs] = useState<PendingTxRecord[]>([]);
@@ -348,6 +380,27 @@ function usePredcaImpl() {
   const [runPriceByIndex, setRunPriceByIndex] = useState<
     Map<number, DecodedRunPrice | null>
   >(() => new Map());
+  const snapshotRef = useRef(snapshot);
+  const runPriceRef = useRef(runPriceByIndex);
+  snapshotRef.current = snapshot;
+  runPriceRef.current = runPriceByIndex;
+  const refreshInFlightRef = useRef(false);
+  const flightGen = useRef(0);
+  const txPendingRef = useRef(false);
+  const loadingRef = useRef(false);
+  const buyExpectRef = useRef<{ prevRunCount: number; runIndex: number } | null>(null);
+  const txVaultRef = useRef<{
+    epoch: number;
+    before: number | null;
+    direction: "up" | "down";
+  } | null>(null);
+  const publishRef = useRef<(commit: RefreshCommit) => void>(() => {});
+  publishRef.current = (commit) => {
+    snapshotRef.current = commit.snapshot;
+    runPriceRef.current = commit.prices;
+    setSnapshot(commit.snapshot);
+    setRunPriceByIndex(commit.prices);
+  };
 
   const provider = useMemo(() => {
     if (!wallet) return null;
@@ -390,7 +443,16 @@ function usePredcaImpl() {
     }
   }, [ownerKey]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: {
+    publish?: boolean;
+    nested?: boolean;
+    quiet?: boolean;
+    source?: "poll" | "critical";
+  }): Promise<RefreshCommit | null> => {
+    const nested = opts?.nested === true;
+    const publish = opts?.publish !== false;
+    const quiet = opts?.quiet === true;
+    const source = opts?.source ?? "critical";
     const epochAtStart = dataEpoch.current;
     const ownerAtStart = owner?.toBase58() ?? null;
     const still = () =>
@@ -400,28 +462,84 @@ function usePredcaImpl() {
         dataEpoch.current,
         ownerRef.current?.toBase58() ?? null,
       );
-    if (!still()) return;
-    const pricesPromise = loadJupPricesInBackground(
-      fetchJupPrices,
-      still,
-      setJupPrices,
-      setPricesLoading,
-    );
-    markHandled(pricesPromise);
-    reportError(null);
-    if (!owner) {
-      if (!still()) {
-        return;
+    if (
+      refreshCallDecision({
+        source,
+        inFlight: refreshInFlightRef.current,
+        nested,
+      }) === "skip"
+    ) {
+      return null;
+    }
+    if (!still()) return null;
+    let myGen = 0;
+    let readGen = 0;
+    const mayPublish = () => publish && still() && flightGen.current === readGen;
+    const finish = (
+      partial: {
+        config: PredcaSnapshot["config"];
+        vaultUsdc: number | null;
+        ownerUsdc: number | null;
+        solBalance: number | null;
+        runs: RunRecordData[];
+        tokenRead: TokenBalanceRead;
+      },
+      priceRead: { map: Map<number, DecodedRunPrice | null>; ok: boolean },
+    ): RefreshCommit => {
+      if (partial.tokenRead.status === "error") {
+        throw new Error(partial.tokenRead.detail ?? "token balance read failed");
       }
-      setSnapshot(EMPTY_SNAPSHOT);
-      setRunPriceByIndex(new Map());
-      return;
-    }
-    if (!still()) {
-      return;
-    }
-    setLoading(true);
+      const commit = commitRefreshRead({
+        prevSnapshot: snapshotRef.current,
+        prevPrices: runPriceRef.current,
+        outcome: {
+          ok: true,
+          config: partial.config,
+          vaultUsdc: partial.vaultUsdc,
+          ownerUsdc: partial.ownerUsdc,
+          solBalance: partial.solBalance,
+          tokenBalances: partial.tokenRead.balances,
+          tokenBalancesStale: partial.tokenRead.status === "unknown",
+          runs: partial.runs,
+        },
+        prices: priceRead,
+        runMeta: partial.runs.map((run) => ({
+          runIndex: bnNum(run.runIndex),
+          ts: bnNum(run.ts),
+        })),
+        nowMs: Date.now(),
+      });
+      if (mayPublish()) publishRef.current(commit);
+      return commit;
+    };
     try {
+      if (!nested) {
+        // Take the flight so an older read cannot publish over this one.
+        myGen = ++flightGen.current;
+        refreshInFlightRef.current = true;
+        loadingRef.current = true;
+        setLoading(true);
+      }
+      readGen = nested ? flightGen.current : myGen;
+      const pricesPromise = loadJupPricesInBackground(
+        fetchJupPrices,
+        still,
+        setJupPrices,
+        setPricesLoading,
+      );
+      markHandled(pricesPromise);
+      if (!quiet) reportError(null);
+      if (!owner) {
+        if (!still()) {
+          return null;
+        }
+        const empty: RefreshCommit = { snapshot: EMPTY_SNAPSHOT, prices: new Map() };
+        if (mayPublish()) publishRef.current(empty);
+        return empty;
+      }
+      if (!still()) {
+        return null;
+      }
       const solPromise = fetchSolBalance(connection, owner);
       markHandled(solPromise);
       const ownerBalPromise = mint
@@ -436,95 +554,145 @@ function usePredcaImpl() {
       markHandled(tokensPromise);
 
       if (!program) {
-        const [sol, ownerBal, tokens] = await Promise.all([
+        const [sol, ownerBal, tokenRead] = await Promise.all([
           solPromise,
           ownerBalPromise,
           tokensPromise,
         ]);
-        if (!still()) return;
-        setSnapshot((prev) =>
-          nextSnapshotAfterRefresh(prev, {
-            ok: true,
+        if (!still()) return null;
+        return finish(
+          {
             config: null,
             vaultUsdc: null,
             ownerUsdc: ownerBal,
             solBalance: sol,
-            tokenBalances: tokens,
             runs: [],
-          }),
+            tokenRead,
+          },
+          { map: new Map(), ok: true },
         );
-        setRunPriceByIndex(new Map());
-        return;
       }
 
       const cfg = await fetchUserConfig(program, owner);
-      if (!still()) return;
+      if (!still()) return null;
 
       if (cfg) {
-        const [bal, records, ownerBal, sol, tokens] = await Promise.all([
+        const [bal, records, ownerBal, sol, tokenRead] = await Promise.all([
           fetchVaultBalance(connection, owner),
           fetchRunRecords(program, owner),
           ownerBalPromise,
           solPromise,
           tokensPromise,
         ]);
-        if (!still()) return;
-        setSnapshot((prev) =>
-          nextSnapshotAfterRefresh(prev, {
-            ok: true,
-            config: cfg,
-            vaultUsdc: bal,
-            ownerUsdc: ownerBal,
-            solBalance: sol,
-            tokenBalances: tokens,
-            runs: records,
-          }),
-        );
+        if (!still()) return null;
+        let priceRead: { map: Map<number, DecodedRunPrice | null>; ok: boolean };
         try {
-          const decoded = await fetchRunPrices(
+          priceRead = await fetchRunPrices(
             connection,
             owner,
             records.map((r) => bnNum(r.runIndex)),
           );
-          if (still()) {
-            setRunPriceByIndex((prev) => mergeRunPrices(prev, decoded));
-          }
         } catch {
-          /* RPC threw outside fetchRunPrices — keep the previous map. */
+          priceRead = { map: new Map(), ok: false };
         }
-      } else {
-        const [ownerBal, sol, tokens] = await Promise.all([
-          ownerBalPromise,
-          solPromise,
-          tokensPromise,
-        ]);
-        if (!still()) return;
-        setSnapshot((prev) =>
-          nextSnapshotAfterRefresh(prev, {
-            ok: true,
-            config: null,
-            vaultUsdc: null,
+        if (!still()) return null;
+        return finish(
+          {
+            config: cfg,
+            vaultUsdc: bal,
             ownerUsdc: ownerBal,
             solBalance: sol,
-            tokenBalances: tokens,
-            runs: [],
-          }),
+            runs: records,
+            tokenRead,
+          },
+          priceRead,
         );
-        setRunPriceByIndex(new Map());
       }
-    } catch (e) {
-      if (!still()) return;
-      setSnapshot((prev) =>
-        nextSnapshotAfterRefresh(prev, { ok: false, error: rpcReadFailure(e) }),
+
+      const [ownerBal, sol, tokenRead] = await Promise.all([
+        ownerBalPromise,
+        solPromise,
+        tokensPromise,
+      ]);
+      if (!still()) return null;
+      return finish(
+        {
+          config: null,
+          vaultUsdc: null,
+          ownerUsdc: ownerBal,
+          solBalance: sol,
+          runs: [],
+          tokenRead,
+        },
+        { map: new Map(), ok: true },
       );
+    } catch (e) {
+      if (!still()) return null;
+      const commit = commitRefreshRead({
+        prevSnapshot: snapshotRef.current,
+        prevPrices: runPriceRef.current,
+        outcome: { ok: false, error: rpcReadFailure(e) },
+        prices: { map: new Map(), ok: false },
+        runMeta: [],
+        nowMs: Date.now(),
+      });
+      if (mayPublish()) publishRef.current(commit);
+      return commit;
     } finally {
-      if (!still()) return;
-      setLoading(false);
+      if (!nested && flightGen.current === myGen) {
+        refreshInFlightRef.current = false;
+        loadingRef.current = false;
+        (() => {
+          if (!still()) return;
+          setLoading(false);
+        })();
+      }
     }
   }, [program, owner, connection, mint]);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    const tick = () => {
+      if (
+        chainPollDecision({
+          visibilityState: document.visibilityState,
+          txPending: txPendingRef.current,
+          loading: loadingRef.current,
+          refreshInFlight: refreshInFlightRef.current,
+        }) !== "poll"
+      ) {
+        return;
+      }
+      void refresh({ quiet: true, source: "poll" });
+    };
+    const arm = () => {
+      stop();
+      if (document.visibilityState !== "visible") return;
+      timer = setInterval(tick, CHAIN_POLL_MS);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        tick();
+        arm();
+      } else {
+        stop();
+      }
+    };
+    if (document.visibilityState === "visible") arm();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
   }, [refresh]);
 
   const refreshPrices = useCallback(async () => {
@@ -609,20 +777,18 @@ function usePredcaImpl() {
    * Wallet USDC is cash outside the DCA and is not included.
    */
   const portfolioUsd = useMemo(() => {
-    if (!owner) return null;
-    return portfolioValue(vaultUsdc ?? 0, positions);
-  }, [owner, vaultUsdc, positions]);
+    if (!owner || priceWarning) return null;
+    return portfolioUsdKnown(vaultUsdc ?? 0, positions);
+  }, [owner, priceWarning, vaultUsdc, positions]);
 
-  const lastPurchaseOnChain = useMemo(
-    () =>
-      lastRun
-        ? runToLastPurchase(
-            lastRun,
-            runPriceByIndex.get(bnNum(lastRun.runIndex)) ?? null,
-          )
-        : null,
-    [lastRun, runPriceByIndex],
-  );
+  const lastPurchaseOnChain = useMemo(() => {
+    if (!lastRun) return null;
+    const idx = bnNum(lastRun.runIndex);
+    const ts = bnNum(lastRun.ts);
+    const presence = effectiveRunPricePresence(runPriceByIndex, idx, ts, Date.now());
+    const dec = presence === "decoded" ? (runPriceByIndex.get(idx) ?? null) : null;
+    return runToLastPurchase(lastRun, presence, dec);
+  }, [lastRun, runPriceByIndex]);
 
   async function confirmLanded(signature: string): Promise<void> {
     const started = Date.now();
@@ -809,7 +975,7 @@ function usePredcaImpl() {
       if (opts.fromSession) {
         reportError(null);
         setOkMsg(priorSessionOk(rec));
-        await refresh();
+        await refreshAfterTx(rec.kind, opts.epoch);
         return;
       }
       if (opts.requireVaultIncrease && ownerRef.current) {
@@ -821,7 +987,7 @@ function usePredcaImpl() {
         );
         return;
       }
-      await refresh();
+      await refreshAfterTx(rec.kind, opts.epoch);
       if (!opts.fromPoll && !opts.fromSession && vaultFollowEpoch.current !== opts.epoch) {
         return;
       }
@@ -998,7 +1164,7 @@ function usePredcaImpl() {
               );
               return;
             }
-            await refresh();
+            await refreshAfterTx(follow.record.kind, follow.epoch);
             if (vaultFollowEpoch.current !== follow.epoch) return;
             reportError(null);
             setOkMsg(follow.success);
@@ -1011,6 +1177,67 @@ function usePredcaImpl() {
         }
       }
     })();
+  }
+
+  async function refreshAfterTx(kind: PendingTxKind, epoch: number): Promise<void> {
+    const followStill = () => vaultFollowEpoch.current === epoch;
+    const myGen = ++flightGen.current;
+    refreshInFlightRef.current = true;
+    let failed: RefreshCommit | null = null;
+    try {
+      if (!followStill()) return;
+      if (kind === "budget") {
+        await refresh({ publish: true, nested: true, quiet: true });
+        return;
+      }
+      const expect = kind === "buy" ? buyExpectRef.current : null;
+      const vaultRetry = txVaultRef.current;
+      const useVault =
+        (kind === "deposit" || kind === "init_deposit" || kind === "withdraw") &&
+        vaultRetry != null &&
+        vaultRetry.epoch === epoch;
+      const result = await retryRefresh({
+        still: followStill,
+        refresh: async () => {
+          const commit = await refresh({ publish: false, nested: true, quiet: true });
+          if (commit && commit.snapshot.rpcError) {
+            failed = commit;
+            return null;
+          }
+          return commit;
+        },
+        settled: (commit) => {
+          if (kind === "buy") {
+            if (expect == null) return false;
+            return buyRefreshSettled({
+              prevRunCount: expect.prevRunCount,
+              expectedRunIndex: expect.runIndex,
+              runs: runSources(commit.snapshot.runs),
+              prices: commit.prices,
+              balances: commit.snapshot.tokenBalances,
+              nowMs: Date.now(),
+            });
+          }
+          if (useVault && vaultRetry) {
+            return vaultMoved(
+              vaultRetry.before,
+              commit.snapshot.vaultUsdc,
+              vaultRetry.direction,
+            );
+          }
+          return false;
+        },
+      });
+      if (!followStill() || flightGen.current !== myGen) return;
+      const chosen = result.last ?? failed;
+      if (chosen) publishRef.current(chosen);
+    } finally {
+      if (flightGen.current === myGen) {
+        refreshInFlightRef.current = false;
+        loadingRef.current = false;
+        if (followStill()) setLoading(false);
+      }
+    }
   }
 
   async function withTx<T>(
@@ -1028,11 +1255,23 @@ function usePredcaImpl() {
     reportError(null);
     setOkMsg(null);
     setPending(null);
+    txPendingRef.current = true;
     setTxPending(true);
+    const trackVault =
+      opts.kind === "deposit" ||
+      opts.kind === "init_deposit" ||
+      opts.kind === "withdraw";
     const vaultBefore =
-      opts.requireVaultIncrease && owner
+      owner && (Boolean(opts.requireVaultIncrease) || trackVault)
         ? await readVaultOrNull(connection, owner)
         : null;
+    txVaultRef.current = trackVault
+      ? {
+          epoch,
+          before: vaultBefore,
+          direction: opts.kind === "withdraw" ? "down" : "up",
+        }
+      : null;
     const followBase = {
       epoch,
       success,
@@ -1055,7 +1294,7 @@ function usePredcaImpl() {
         return settled === "error" ? null : result;
       }
       setOkMsg(success);
-      await refresh();
+      await refreshAfterTx(opts.kind, epoch);
       return result;
     } catch (e) {
       if (isOnChainSignatureReject(e)) {
@@ -1141,12 +1380,13 @@ function usePredcaImpl() {
         );
         return settled === "error" ? null : (signature as T);
       }
-      await refresh();
+      await refreshAfterTx(opts.kind, epoch);
       if (vaultFollowEpoch.current !== epoch) return signature as T;
       reportError(null);
       setOkMsg(success);
       return signature as T;
     } finally {
+      txPendingRef.current = false;
       setTxPending(false);
     }
   }
@@ -1446,6 +1686,7 @@ function usePredcaImpl() {
     // Before the first await. withTx sets txPending only after config/vault/index.
     // Do not reportError here: a duplicate call must not clobber the buy in flight.
     if (!tryEnterManualBuy(buyLockRef, false)) return null;
+    txPendingRef.current = true;
     setTxPending(true);
     try {
       // Re-fetch config so budget is fresh after setWeeklyBudget in the same turn
@@ -1529,6 +1770,9 @@ function usePredcaImpl() {
         withOneStaleBlockhashRetry(isPrivy, () => submitAt(runIndex));
 
       const submitAndRemember = async (runIndex: number) => {
+        if (buyExpectRef.current) {
+          buyExpectRef.current = { ...buyExpectRef.current, runIndex };
+        }
         try {
           const sig = await submitOnce(runIndex);
           createdRunIndicesRef.current.add(runIndex);
@@ -1564,6 +1808,7 @@ function usePredcaImpl() {
         preview = "";
       }
 
+      buyExpectRef.current = { prevRunCount: nextIndex, runIndex: nextIndex };
       return await withTx(async () => {
         try {
           return await submitAndRemember(nextIndex);
@@ -1589,7 +1834,9 @@ function usePredcaImpl() {
       reportError(parseAnchorError(e));
       return null;
     } finally {
+      buyExpectRef.current = null;
       leaveManualBuy(buyLockRef);
+      txPendingRef.current = false;
       setTxPending(false);
     }
   }
@@ -1619,6 +1866,8 @@ function usePredcaImpl() {
     pendingSignatureNow: () => pendingSigRef.current,
     configState,
     rpcError,
+    balanceWarning: balanceWarning ?? null,
+    priceWarning: priceWarning ?? null,
     unresolvedTxs,
     visibleUnresolvedTxs: visibleUnresolved(unresolvedTxs, sessionChecking),
     recheckUnresolved,

@@ -1,8 +1,13 @@
 /**
  * RunRecord × RunPrice slots for History.
- * A missing account stays slots=null (legacy). A zero price or zero units is not a fill.
+ * Confirmed missing account → slots null, legacy 1:1.
+ * Unknown (no map entry, failed read, or a young unconfirmed account) must not
+ * be shown as dollars. A zero price or zero units is not a fill.
  * predca 3.0 fills take token amounts from RunRecord and the price from RunPrice.
  */
+
+import { effectiveRunPricePresence } from "@/lib/run-price";
+import type { LotPriceState } from "@/lib/position-value";
 
 export type RunFillSlot = {
   units: number;
@@ -13,12 +18,16 @@ export type RunFillSlot = {
 
 export type RunFillView = {
   runIndex: string;
-  /** null when this run has no RunPrice account (legacy 1:1). */
+  /** null when this run has no decoded RunPrice (legacy or unknown). */
   slots: Array<RunFillSlot | null> | null;
+  /** `unknown` → do not render token units as USD. */
+  priceState: LotPriceState;
 };
 
 export type FillRun = {
   runIndex: number;
+  /** RunRecord.ts, unix seconds. Used to keep a young missing account unknown. */
+  ts?: number;
   mints: string[];
   /** RunRecord.amounts / 1e6. Real minted tokens on predca 3.0. */
   tokenAmounts?: number[];
@@ -40,10 +49,22 @@ function isPriced(dec: FillDecoded): boolean {
 export function fillsFor(
   runs: FillRun[],
   decoded: ReadonlyMap<number, FillDecoded | null>,
+  nowMs = Date.now(),
 ): RunFillView[] {
   return runs.map((run) => {
-    const dec = decoded.get(run.runIndex) ?? null;
-    if (!dec) return { runIndex: String(run.runIndex), slots: null };
+    const presence = effectiveRunPricePresence(
+      decoded,
+      run.runIndex,
+      run.ts ?? 0,
+      nowMs,
+    );
+    if (presence === "unknown") {
+      return { runIndex: String(run.runIndex), slots: null, priceState: "unknown" };
+    }
+    const dec = presence === "decoded" ? (decoded.get(run.runIndex) ?? null) : null;
+    if (!dec) {
+      return { runIndex: String(run.runIndex), slots: null, priceState: "legacy" };
+    }
     const usdc =
       dec.usdcSpentEach != null && Number(dec.usdcSpentEach) > 0
         ? Number(dec.usdcSpentEach) / 1e6
@@ -79,6 +100,6 @@ export function fillsFor(
       if (units <= 0 || price <= 0) return null;
       return usdc != null ? { units, price, usdc } : { units, price };
     });
-    return { runIndex: String(run.runIndex), slots };
+    return { runIndex: String(run.runIndex), slots, priceState: "priced" };
   });
 }

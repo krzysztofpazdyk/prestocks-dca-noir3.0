@@ -1,5 +1,6 @@
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import {
+  AccountLayout,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
@@ -263,6 +264,52 @@ export function isMissingAccountError(e: unknown): boolean {
   return MISSING_ACCOUNT_RE.test(`${message}\n${String(e)}`);
 }
 
+/** status / statusCode on the error or on error.response. */
+export function httpStatusCode(err: unknown): number | null {
+  if (err == null || typeof err !== "object") return null;
+  const e = err as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown; statusCode?: unknown };
+  };
+  const values = [e.status, e.statusCode, e.response?.status, e.response?.statusCode];
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  }
+  return null;
+}
+
+function errorMessageText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    return String((err as { message?: unknown }).message ?? "");
+  }
+  return String(err ?? "");
+}
+
+/**
+ * Transport and rate-limit failures. `\b429\b` does not match a digit run
+ * buried inside a signature. An object with status 429 counts even if the
+ * message never says 429.
+ */
+export function isRateOrNetworkError(err: unknown): boolean {
+  if (httpStatusCode(err) === 429) return true;
+  const msg = errorMessageText(err);
+  if (/\b429\b/.test(msg) || /\b50[234]\b/.test(msg)) return true;
+  return /failed to fetch|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|Network request failed|fetch failed|too many requests|rate limit/i.test(
+    msg,
+  );
+}
+
+function isRpcDisconnect(err: unknown, msg: string): boolean {
+  if (httpStatusCode(err) === 429) return true;
+  return (
+    /failed to fetch|ECONNREFUSED|Network request failed|fetch failed/i.test(msg) ||
+    /\b429\b/.test(msg)
+  );
+}
+
 export async function fetchUserConfig(
   program: Program<Predca>,
   owner: PublicKey,
@@ -466,11 +513,7 @@ export function parseAnchorError(err: unknown): string {
   if (/User rejected|rejected the request/i.test(msg)) {
     return "Transakcja odrzucona w portfelu.";
   }
-  if (
-    /failed to fetch|ECONNREFUSED|429|Network request failed|fetch failed/i.test(
-      msg,
-    )
-  ) {
+  if (isRpcDisconnect(err, msg)) {
     const raw = (e.message ?? String(err)).trim().slice(0, 120);
     return (
       `Brak połączenia z RPC (sprawdź NEXT_PUBLIC_RPC_URL / Devnet).` +
@@ -533,40 +576,88 @@ export type MockTokenBalance = {
   raw: bigint;
 };
 
+/** One getMultipleAccountsInfo batch. Devnet mock set is 8; cap is 100. */
+export const TOKEN_BALANCE_BATCH = 100;
+
+export type TokenBalanceRead = {
+  balances: MockTokenBalance[];
+  /** `unknown` keeps the previous balances. `error` may become rpcError. */
+  status: "ok" | "unknown" | "error";
+  /** i18n key when unknown; raw message when error. */
+  detail: string | null;
+};
+
+/** SPL token amount at byte 64. Null when the account cannot be decoded. */
+export function rawTokenAmount(data: Uint8Array): bigint | null {
+  try {
+    if (data.byteLength < AccountLayout.span) return null;
+    const decoded = AccountLayout.decode(
+      Buffer.from(data.buffer, data.byteOffset, data.byteLength),
+    );
+    const amount = decoded.amount;
+    if (typeof amount === "bigint") return amount;
+    if (typeof amount === "number" && Number.isFinite(amount)) return BigInt(Math.trunc(amount));
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Read owner ATAs for all Devnet mock PreStock mints.
- * Missing ATA → skip (treated as zero).
+ * Read owner ATAs for all Devnet mock PreStock mints in batches of 100.
+ * Missing account → 0. A 429/network failure or one undecodable account
+ * returns `unknown` instead of throwing the whole refresh away.
  */
 export async function fetchMockTokenBalances(
   connection: Connection,
   owner: PublicKey,
   entries: { name: string; mint: PublicKey }[],
-): Promise<MockTokenBalance[]> {
-  const out: MockTokenBalance[] = [];
-  await Promise.all(
-    entries.map(async ({ name, mint }) => {
-      const ata = getAssociatedTokenAddressSync(
-        mint,
-        owner,
-        false,
-        TOKEN_PROGRAM_ID,
-      );
-      try {
-        const bal = await connection.getTokenAccountBalance(ata);
-        const raw = BigInt(bal.value.amount);
-        if (raw === BigInt(0)) return;
-        const amount = Number(
-          bal.value.uiAmountString ?? bal.value.uiAmount ?? Number(raw) / 1e6,
-        );
-        out.push({ name, mint, amount, raw });
-      } catch (e) {
-        if (isMissingAccountError(e)) return;
-        throw e;
+): Promise<TokenBalanceRead> {
+  const rows: MockTokenBalance[] = [];
+  const atas = entries.map(({ name, mint }) => ({
+    name,
+    mint,
+    ata: getAssociatedTokenAddressSync(mint, owner, false, TOKEN_PROGRAM_ID),
+  }));
+  try {
+    for (let i = 0; i < atas.length; i += TOKEN_BALANCE_BATCH) {
+      const slice = atas.slice(i, i + TOKEN_BALANCE_BATCH);
+      const infos = await connection.getMultipleAccountsInfo(slice.map((row) => row.ata));
+      if (infos.length !== slice.length) {
+        return { balances: [], status: "unknown", detail: "balances.warning" };
       }
-    }),
-  );
-  out.sort((a, b) => b.amount - a.amount);
-  return out;
+      for (let j = 0; j < slice.length; j++) {
+        const info = infos[j];
+        const { name, mint } = slice[j];
+        if (!info) {
+          rows.push({ name, mint, amount: 0, raw: BigInt(0) });
+          continue;
+        }
+        const raw = rawTokenAmount(info.data);
+        if (raw == null) {
+          return { balances: [], status: "unknown", detail: "balances.warning" };
+        }
+        const amount = Number(raw) / 1e6;
+        rows.push({
+          name,
+          mint,
+          amount: Number.isFinite(amount) ? amount : 0,
+          raw,
+        });
+      }
+    }
+  } catch (e) {
+    if (isRateOrNetworkError(e)) {
+      return { balances: [], status: "unknown", detail: "balances.warning" };
+    }
+    return {
+      balances: [],
+      status: "error",
+      detail: errorMessageText(e),
+    };
+  }
+  rows.sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
+  return { balances: rows, status: "ok", detail: null };
 }
 
 /**

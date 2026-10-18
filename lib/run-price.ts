@@ -159,6 +159,51 @@ export function mergeRunPrices<T>(
   return new Map(next.map);
 }
 
+/**
+ * How a run sits in the RunPrice map.
+ * `decoded` — account present. `missing` — key is present and null after a
+ * successful read (legacy 1:1). `unknown` — key absent (read not done or failed).
+ */
+export type RunPricePresence = "decoded" | "missing" | "unknown";
+
+/** A confirmed-missing account younger than this is still unknown (lagging RPC). */
+export const YOUNG_RUN_PRICE_MS = 60_000;
+
+export function runPricePresence<T>(
+  map: ReadonlyMap<number, T | null>,
+  runIndex: number,
+): RunPricePresence {
+  if (!map.has(runIndex)) return "unknown";
+  return map.get(runIndex) == null ? "missing" : "decoded";
+}
+
+/** `tsSec` is RunRecord.ts (unix seconds). Non-positive timestamps are not young. */
+export function isYoungRunTs(
+  tsSec: number,
+  nowMs: number,
+  youngMs = YOUNG_RUN_PRICE_MS,
+): boolean {
+  if (!Number.isFinite(tsSec) || tsSec <= 0) return false;
+  if (!Number.isFinite(nowMs)) return false;
+  return nowMs - tsSec * 1000 < youngMs;
+}
+
+/**
+ * Same as {@link runPricePresence}, except a missing account on a run younger
+ * than {@link YOUNG_RUN_PRICE_MS} stays unknown. Delayed devnet RPC can report
+ * "no account" for a RunPrice that simulate_buy_v2 just created.
+ */
+export function effectiveRunPricePresence<T>(
+  map: ReadonlyMap<number, T | null>,
+  runIndex: number,
+  tsSec: number,
+  nowMs: number,
+): RunPricePresence {
+  const presence = runPricePresence(map, runIndex);
+  if (presence === "missing" && isYoungRunTs(tsSec, nowMs)) return "unknown";
+  return presence;
+}
+
 /** Batch-read RunPrice PDAs. RPC failure → ok false so the caller keeps the previous map. */
 export async function fetchRunPrices(
   connection: Connection,
