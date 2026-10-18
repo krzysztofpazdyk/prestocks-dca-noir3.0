@@ -177,9 +177,8 @@ function assertOwnerPubkey(pk) {
   if (!s) throw new Error("missing owner pubkey");
   // Validate base58 pubkey length / Solana PublicKey parse
   try {
-    // eslint-disable-next-line no-new
     new PublicKey(s);
-  } catch (e) {
+  } catch {
     throw new Error(`invalid owner pubkey: ${s}`);
   }
   return s;
@@ -491,24 +490,6 @@ function loadOwnerPubkey() {
   throw new Error(
     "Ustaw PREDCA_OWNER na pubkey portfela z vaultem Predca (adres publiczny, nie klucz prywatny).",
   );
-}
-
-/** Crank IDL: owner is the vault's user, not a signer. Bot is tx fee payer. */
-function crankIdl(base) {
-  const copy = JSON.parse(JSON.stringify(base));
-  for (const ix of copy.instructions ?? []) {
-    if (
-      ix.name === "simulate_buy" ||
-      ix.name === "execute_buy" ||
-      ix.name === "simulate_buy_v2" ||
-      ix.name === "execute_buy_v2"
-    ) {
-      for (const acc of ix.accounts ?? []) {
-        if (acc.name === "owner") acc.signer = false;
-      }
-    }
-  }
-  return copy;
 }
 
 function normKey(s) {
