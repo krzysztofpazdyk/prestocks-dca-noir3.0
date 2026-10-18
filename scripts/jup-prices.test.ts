@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { MINTS, XAI_MINT } from "../lib/universe";
+import { MINTS, REFERENCE_MINTS, XAI_MINT } from "../lib/universe";
 import {
   JUP_CACHE_KEY,
   checkJump,
@@ -12,6 +12,7 @@ import {
   isLowLiquidity,
   jupPriceUrl,
   parseJupResponse,
+  premiumBasisUsd,
   type JupQuote,
   type JupStorage,
 } from "../lib/jup-prices";
@@ -61,6 +62,10 @@ function quote(partial: Partial<JupQuote> = {}): JupQuote {
     usdPrice: 100,
     stockPrice: 125,
     stockUpdatedAt: NOW - 1000,
+    refUsdPrice: null,
+    refUpdatedAt: null,
+    refBackupUsdPrice: null,
+    refBackupUpdatedAt: null,
     liquidityUsd: 100_000,
     multiplierChange: false,
     ...partial,
@@ -187,12 +192,106 @@ test("stockData stays fresh for 72h and drops one second later", () => {
   assert.equal(STOCK_DATA_MAX_AGE_MS, 72 * hour);
 });
 
+function refRow(usd: number, updatedAt = NOW - 60_000, stock = 167.16) {
+  return {
+    usdPrice: usd,
+    createdAt: "2026-06-01T13:57:48Z",
+    liquidity: 2_000_000,
+    stockData: { id: "xstocks", price: stock, updatedAt: new Date(updatedAt).toISOString() },
+  };
+}
+
+test("SpaceX premium divides by SPCXx usdPrice and ignores the frozen stock quote", () => {
+  const raw = bodyFor((name) =>
+    liveRow(name === "SpaceX" ? 122.05 : 80, name === "SpaceX" ? 167.16 : 100),
+  );
+  raw[REFERENCE_MINTS.SpaceX.primary] = refRow(144.46);
+  raw[REFERENCE_MINTS.SpaceX.backup] = refRow(140, NOW - 60_000, 141);
+  const quotes = parseJupResponse(raw, NOW);
+  assert.equal(quotes.SpaceX.refUsdPrice, 144.46);
+  assert.notEqual(quotes.SpaceX.refUsdPrice, 167.16);
+  assert.equal(quotes.SpaceX.stockPrice, 167.16);
+  assert.equal(quotes.OpenAI.refUsdPrice, null);
+  assert.equal(quotes.OpenAI.refBackupUsdPrice, null);
+  const sx = ipoPremiumPct(quotes.SpaceX, NOW);
+  assert.ok(sx != null);
+  assert.ok(Math.abs(sx - (122.05 / 144.46 - 1) * 100) < 1e-9);
+  assert.equal(premiumBasisUsd(quotes.SpaceX, NOW), 144.46);
+  const frozen = (122.05 / 167.16 - 1) * 100;
+  assert.ok(frozen < sx - 10);
+  const openai = ipoPremiumPct(quotes.OpenAI, NOW);
+  assert.ok(openai != null);
+  assert.ok(Math.abs(openai - (80 / 100 - 1) * 100) < 1e-9);
+});
+
+test("SpaceX falls back to SPCX, then to no data, and never uses a mint date", () => {
+  const raw = bodyFor((name) => liveRow(name === "SpaceX" ? 122.05 : 80, 100));
+  raw[REFERENCE_MINTS.SpaceX.primary] = refRow(144.46, NOW - STOCK_DATA_MAX_AGE_MS - 1);
+  raw[REFERENCE_MINTS.SpaceX.backup] = refRow(150);
+  const quotes = parseJupResponse(raw, NOW);
+  const backed = ipoPremiumPct(quotes.SpaceX, NOW);
+  assert.ok(backed != null);
+  assert.ok(Math.abs(backed - (122.05 / 150 - 1) * 100) < 1e-9);
+  assert.equal(premiumBasisUsd(quotes.SpaceX, NOW), 150);
+
+  quotes.SpaceX.refUsdPrice = null;
+  quotes.SpaceX.refUpdatedAt = null;
+  assert.equal(premiumBasisUsd(quotes.SpaceX, NOW), 150);
+
+  quotes.SpaceX.refBackupUpdatedAt = NOW - STOCK_DATA_MAX_AGE_MS - 1;
+  assert.equal(ipoPremiumPct(quotes.SpaceX, NOW), null);
+  assert.equal(premiumBasisUsd(quotes.SpaceX, NOW), null);
+
+  const undated = parseJupResponse(
+    {
+      [MINTS.SpaceX]: liveRow(122.05, 167.16),
+      [REFERENCE_MINTS.SpaceX.primary]: {
+        usdPrice: 144.46,
+        createdAt: "2026-06-01T13:57:48Z",
+      },
+    },
+    NOW,
+  );
+  assert.equal(undated.SpaceX.refUsdPrice, 144.46);
+  assert.equal(undated.SpaceX.refUpdatedAt, null);
+  assert.equal(ipoPremiumPct(undated.SpaceX, NOW), null);
+
+  const boundary = quote({
+    name: "SpaceX",
+    mint: MINTS.SpaceX,
+    usdPrice: 122.05,
+    stockPrice: 167.16,
+    stockUpdatedAt: NOW,
+    refUsdPrice: 144.46,
+    refUpdatedAt: NOW - STOCK_DATA_MAX_AGE_MS,
+    refBackupUsdPrice: 150,
+    refBackupUpdatedAt: NOW,
+  });
+  assert.equal(premiumBasisUsd(boundary, NOW), 144.46);
+});
+
+test("a fresh OpenAI quote ignores reference fields", () => {
+  const pct = ipoPremiumPct(
+    quote({
+      name: "OpenAI",
+      refUsdPrice: 1,
+      refUpdatedAt: NOW,
+      refBackupUsdPrice: 1,
+      refBackupUpdatedAt: NOW,
+    }),
+    NOW,
+  );
+  assert.ok(pct != null);
+  assert.ok(Math.abs(pct - (100 / 125 - 1) * 100) < 1e-9);
+});
+
 test("multiplier change is set for a future or <24h effective time", () => {
   const future = parseJupResponse(
     {
       [MINTS.SpaceX]: liveRow(10, 12, new Date(NOW).toISOString(), {
         scaledUiConfig: { newMultiplierEffectiveAt: new Date(NOW + 60_000).toISOString() },
       }),
+      [REFERENCE_MINTS.SpaceX.primary]: refRow(12),
     },
     NOW,
   );
@@ -217,6 +316,7 @@ test("multiplier change is set for a future or <24h effective time", () => {
     NOW,
   );
   assert.equal(future.SpaceX.multiplierChange, true);
+  assert.equal(future.SpaceX.refUsdPrice, 12);
   assert.equal(ipoPremiumPct(future.SpaceX, NOW), null);
   assert.equal(recent.OpenAI.multiplierChange, true);
   assert.equal(ipoPremiumPct(recent.OpenAI, NOW), null);
@@ -333,7 +433,7 @@ test("cache older than 7 days is ignored", async () => {
   assert.notEqual(got.fetchedAt, NOW - 7 * DAY - 1);
 });
 
-test("price url lists the 8 universe mints and not xAI", () => {
+test("price url lists the 8 universe mints, both SpaceX references, and not xAI", () => {
   const prev = process.env.NEXT_PUBLIC_JUP_PRICE_URL;
   delete process.env.NEXT_PUBLIC_JUP_PRICE_URL;
   try {
@@ -341,6 +441,12 @@ test("price url lists the 8 universe mints and not xAI", () => {
     for (const mint of Object.values(MINTS)) {
       assert.equal(url.split(mint).length, 2, mint);
     }
+    assert.equal(url.split(REFERENCE_MINTS.SpaceX.primary).length, 2);
+    assert.equal(url.split(REFERENCE_MINTS.SpaceX.backup).length, 2);
+    assert.equal(url.split("ids=").length, 2);
+    assert.equal(Object.values(MINTS).includes(REFERENCE_MINTS.SpaceX.primary), false);
+    assert.equal(Object.values(MINTS).includes(REFERENCE_MINTS.SpaceX.backup), false);
+    assert.equal(Object.keys(MINTS).length, 8);
     assert.equal(url.includes(XAI_MINT), false);
     assert.match(url, /^https:\/\/lite-api\.jup\.ag\/price\/v3\?ids=/);
   } finally {
@@ -349,6 +455,8 @@ test("price url lists the 8 universe mints and not xAI", () => {
   }
   const empty = emptyJupPrices(0);
   assert.equal(Object.keys(empty.quotes).length, 8);
+  assert.equal(empty.quotes.SpaceX.refUsdPrice, null);
+  assert.equal(JUP_CACHE_KEY, "noir3.predca.jupPrices.v2");
 });
 
 test("a partial Jupiter response keeps a cached price and a later failure still has it", async () => {
@@ -389,6 +497,67 @@ test("a partial Jupiter response keeps a cached price and a later failure still 
   });
   assert.notEqual(down.quotes.OpenAI.usdPrice, null);
   assert.equal(down.quotes.OpenAI.usdPrice, 10);
+});
+
+test("cache v2 keeps SpaceX reference prices and does not read v1", async () => {
+  const storage = memStore();
+  const body = bodyFor(() => liveRow(122.05, 167.16));
+  body[REFERENCE_MINTS.SpaceX.primary] = refRow(144.46);
+  body[REFERENCE_MINTS.SpaceX.backup] = refRow(150);
+  await fetchJupPrices({
+    fetchImpl: scripted([{ body }]).fetchImpl,
+    storage,
+    now: () => NOW,
+    sleep: async () => {},
+  });
+  const cached = await fetchJupPrices({
+    fetchImpl: scripted([{ fail: "throw" }]).fetchImpl,
+    storage,
+    now: () => NOW,
+    sleep: async () => {},
+  });
+  assert.equal(cached.source, "cache");
+  assert.equal(cached.quotes.SpaceX.refUsdPrice, 144.46);
+  assert.equal(cached.quotes.SpaceX.refBackupUsdPrice, 150);
+  assert.equal(premiumBasisUsd(cached.quotes.SpaceX, NOW), 144.46);
+
+  const dirty = memStore();
+  const quotes = parseJupResponse(bodyFor(() => liveRow(10)), NOW);
+  const broken = {
+    ...quotes.SpaceX,
+    refUsdPrice: "nope",
+    refUpdatedAt: "yesterday",
+    refBackupUsdPrice: -4,
+    refBackupUpdatedAt: null,
+  };
+  dirty.setItem(
+    JUP_CACHE_KEY,
+    JSON.stringify({
+      quotes: { ...quotes, SpaceX: broken },
+      fetchedAt: NOW - 1000,
+    }),
+  );
+  const sanitized = await fetchJupPrices({
+    fetchImpl: scripted([{ fail: "throw" }]).fetchImpl,
+    storage: dirty,
+    now: () => NOW,
+    sleep: async () => {},
+  });
+  assert.equal(sanitized.quotes.SpaceX.refUsdPrice, null);
+  assert.equal(sanitized.quotes.SpaceX.refUpdatedAt, null);
+  assert.equal(sanitized.quotes.SpaceX.refBackupUsdPrice, null);
+  assert.equal(sanitized.quotes.SpaceX.usdPrice, 10);
+
+  const legacy = memStore();
+  legacy.setItem("noir3.predca.jupPrices.v1", storage.getItem(JUP_CACHE_KEY) ?? "");
+  const ignored = await fetchJupPrices({
+    fetchImpl: scripted([{ fail: "throw" }]).fetchImpl,
+    storage: legacy,
+    now: () => NOW,
+    sleep: async () => {},
+  });
+  assert.equal(ignored.quotes.SpaceX.usdPrice, null);
+  assert.equal(ignored.quotes.SpaceX.refUsdPrice, null);
 });
 
 test("a full Jupiter response carries nothing", async () => {

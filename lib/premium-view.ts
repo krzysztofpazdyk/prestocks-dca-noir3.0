@@ -2,8 +2,8 @@
  * The premium the Overview shows. Same number as the "Ceny tokenów vs wycena spółek" panel.
  */
 
-import { ipoPremiumPct, quoteByName, type JupPrices } from "@/lib/jup-prices";
-import type { RankResult } from "@/lib/universe";
+import { canonicalName, ipoPremiumPct, quoteByName, type JupPrices } from "@/lib/jup-prices";
+import { REFERENCE_MINTS, type RankResult } from "@/lib/universe";
 
 export function livePremiumPct(name: string, prices: JupPrices): number | null {
   const quote = quoteByName(prices.quotes, name);
@@ -29,6 +29,57 @@ export function premiumKind(pct: number | null): "above" | "below" | "at" | "non
   if (pct == null || !Number.isFinite(pct)) return "none";
   if (Math.abs(pct) < 0.05) return "at";
   return pct > 0 ? "above" : "below";
+}
+
+export function showsSpacexDiscount(name: string): boolean {
+  const want = canonicalName(name);
+  return Object.keys(REFERENCE_MINTS).some((key) => canonicalName(key) === want);
+}
+
+export type PremiumCopy = {
+  textKey: string;
+  tooltipKey: string;
+  labelKey: string;
+  tone: PremiumTone;
+  withPct: boolean;
+};
+
+/**
+ * SpaceX is a discount versus SPCXx, not a valuation premium.
+ * `cell` empty state is the short „brak danych”; `inline` keeps the longer sentence.
+ */
+export function premiumCopy(
+  name: string,
+  pct: number | null,
+  stale: boolean,
+  surface: "inline" | "cell",
+): PremiumCopy {
+  const tone = premiumTone(pct, stale);
+  const kind = premiumKind(pct);
+  const spacex = showsSpacexDiscount(name);
+  const tooltipKey = spacex ? "premium.spacex.tooltip" : "premium.tooltip";
+  const labelKey = spacex ? "premium.spacex.label" : "premium.label";
+  if (kind === "none" || pct == null) {
+    return {
+      textKey: spacex
+        ? "premium.spacex.noData"
+        : surface === "cell"
+          ? "positions.noData"
+          : "premium.noData",
+      tooltipKey,
+      labelKey,
+      tone,
+      withPct: false,
+    };
+  }
+  const textKey = spacex
+    ? "premium.spacex.value"
+    : kind === "above"
+      ? "premium.above"
+      : kind === "below"
+        ? "premium.below"
+        : "premium.atValuation";
+  return { textKey, tooltipKey, labelKey, tone, withPct: true };
 }
 
 /** Buyer color. stale (cache/carried) → always neutral. */
