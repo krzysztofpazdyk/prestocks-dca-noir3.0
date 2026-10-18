@@ -54,10 +54,18 @@ import {
   budgetsDiffer,
   parseWeeklyDraft,
   readWeeklyDraft,
+  subscribeWeeklyBudget,
+  weeklyBudgetRevision,
+  weeklyBudgetServerRevision,
   writeWeeklyDraft,
 } from "@/lib/weekly-budget";
 import { useAutoWeeklyBuy } from "@/lib/hooks/useAutoWeeklyBuy";
+import { useIsClient } from "@/lib/hooks/useIsClient";
 import { dcaApiBase, LS_TYPESAFE, LS_XAI, readTypesafeKey } from "@/lib/keys";
+import {
+  formatWeeklyDraft,
+  settingsWeeklyFromStorage,
+} from "@/lib/settings-weekly";
 
 /** Keeper-synced ranking prefs snapshot for dirty detection. */
 type PrefsBaseline = {
@@ -118,10 +126,6 @@ export function SettingsView() {
   const signMessageRef = useRef(signMessage);
   signMessageRef.current = signMessage;
   const { t } = useI18n();
-  const [weekly, setWeekly] = useState(DEFAULT_SETTINGS.weeklyAmountUsd);
-  const [weeklyDraft, setWeeklyDraft] = useState(
-    String(DEFAULT_SETTINGS.weeklyAmountUsd),
-  );
   const [exclusions, setExclusions] = useState("");
   const [deadlineInvalid, setDeadlineInvalid] = useState(
     DEFAULT_SETTINGS.deadlineInvalid,
@@ -139,7 +143,7 @@ export function SettingsView() {
   const [showTypesafe, setShowTypesafe] = useState(false);
   const [showXai, setShowXai] = useState(false);
   const [byokSaved, setByokSaved] = useState(false);
-  const [prefsReady, setPrefsReady] = useState(false);
+  const [hydratedOwner, setHydratedOwner] = useState<string | null>(null);
   const [autoConfirmOpen, setAutoConfirmOpen] = useState(false);
   const [syncedBaseline, setSyncedBaseline] = useState<PrefsBaseline | null>(
     null,
@@ -156,27 +160,73 @@ export function SettingsView() {
   }, []);
 
   // Settings weekly amount is SoT for init-on-deposit (Overview reads same LS key).
-  // Hydrate from per-wallet LS; do not keep syncing from on-chain (that stomped LS saves).
-  const [weeklyReady, setWeeklyReady] = useState(false);
+  // Read per-wallet LS during render. Do not copy chain into this state (that stomped LS saves).
   const ownerBase58 = publicKey?.toBase58() ?? null;
+  const isClient = useIsClient();
+  const weeklyTick = useSyncExternalStore(
+    subscribeWeeklyBudget,
+    weeklyBudgetRevision,
+    weeklyBudgetServerRevision,
+  );
+  // Server and hydration stay on the default. After that, storage is the
+  // value: a pre-connect draft fills a wallet that has nothing saved.
+  // adoptWeeklyDraft is the same read settingsWeeklyFromStorage uses; the
+  // chain value is never copied over localStorage.
+  const adoptedWeekly = adoptWeeklyDraft(
+    isClient && ownerBase58 ? readStoredWeeklyBudgetUsd(ownerBase58) : null,
+    isClient ? readWeeklyDraft() : null,
+  );
+  const storedWeekly = isClient ? settingsWeeklyFromStorage(ownerBase58) : null;
+  const fallbackAmount =
+    adoptedWeekly.value ?? DEFAULT_SETTINGS.weeklyAmountUsd;
+  const hydratedWeekly = storedWeekly ?? {
+    amount: fallbackAmount,
+    draft: formatWeeklyDraft(fallbackAmount),
+  };
+  const [weeklyEdit, setWeeklyEdit] = useState<{
+    owner: string | null;
+    rev: number;
+    weekly: number;
+    draft: string;
+  } | null>(null);
+  const weeklyLive =
+    weeklyEdit != null &&
+    weeklyEdit.owner === ownerBase58 &&
+    weeklyEdit.rev === weeklyTick
+      ? weeklyEdit
+      : null;
+  const weekly = weeklyLive ? weeklyLive.weekly : hydratedWeekly.amount;
+  const weeklyDraft = weeklyLive ? weeklyLive.draft : hydratedWeekly.draft;
+  function setWeekly(value: number) {
+    setWeeklyEdit((prev) => {
+      const live =
+        prev != null && prev.owner === ownerBase58 && prev.rev === weeklyTick
+          ? prev
+          : null;
+      return {
+        owner: ownerBase58,
+        rev: weeklyTick,
+        weekly: value,
+        draft: live ? live.draft : hydratedWeekly.draft,
+      };
+    });
+  }
+  function setWeeklyDraft(next: string) {
+    setWeeklyEdit((prev) => {
+      const live =
+        prev != null && prev.owner === ownerBase58 && prev.rev === weeklyTick
+          ? prev
+          : null;
+      return {
+        owner: ownerBase58,
+        rev: weeklyTick,
+        weekly: live ? live.weekly : hydratedWeekly.amount,
+        draft: next,
+      };
+    });
+  }
   useEffect(() => {
-    const draft = readWeeklyDraft();
-    if (!ownerBase58) {
-      const amount = draft ?? DEFAULT_SETTINGS.weeklyAmountUsd;
-      setWeekly(amount);
-      setWeeklyDraft(String(Math.round(amount * 100) / 100));
-      setWeeklyReady(true);
-      return;
-    }
-    const scoped = readStoredWeeklyBudgetUsd(ownerBase58);
-    const adopted = adoptWeeklyDraft(scoped, draft);
-    const written = adoptWeeklyDraftForOwner(ownerBase58);
-    const amount = written ?? adopted.value ?? DEFAULT_SETTINGS.weeklyAmountUsd;
-    const parsed = parseWeeklyDraft(String(amount));
-    const next = parsed.ok ? parsed.value : amount;
-    setWeekly(next);
-    setWeeklyDraft(String(Math.round(next * 100) / 100));
-    setWeeklyReady(true);
+    adoptWeeklyDraftForOwner(ownerBase58);
   }, [ownerBase58]);
 
   const companySnap = useSyncExternalStore(
@@ -197,11 +247,11 @@ export function SettingsView() {
   // prefsReady stays false until hydrate finishes so we never push stale local
   // over keeper. Prefs file is global on the demo daemon; still skip apply when
   // a connected wallet differs from the registered owner.
+  const ownerKey = publicKey?.toBase58() ?? "";
+  const prefsReady = hydratedOwner === ownerKey;
   useEffect(() => {
     let cancelled = false;
-    setPrefsReady(false);
-    setSyncedBaseline(null);
-    setPrefsSaveMsg(null);
+    const ownerKeyAtStart = publicKey?.toBase58() ?? "";
     void (async () => {
       try {
         const seeded = readTypesafeKey();
@@ -253,7 +303,8 @@ export function SettingsView() {
       setSyncedBaseline(
         makeBaseline(shown, deadline, ipo, buyDespite),
       );
-      setPrefsReady(true);
+      setPrefsSaveMsg(null);
+      setHydratedOwner(ownerKeyAtStart);
     })();
     return () => {
       cancelled = true;
@@ -310,7 +361,8 @@ export function SettingsView() {
   // `weekly` changes only after parseWeeklyDraft succeeds, so an empty or
   // partial draft never replaces the last valid amount.
   useEffect(() => {
-    if (!weeklyReady) return;
+    // Stay on the server default until the client snapshot has the stored amount.
+    if (!isClient) return;
     const parsed = parseWeeklyDraft(String(weekly));
     if (!parsed.ok) return;
     const id = window.setTimeout(() => {
@@ -318,7 +370,7 @@ export function SettingsView() {
       else writeWeeklyDraft(parsed.value);
     }, 300);
     return () => window.clearTimeout(id);
-  }, [weekly, weeklyReady, ownerBase58]);
+  }, [weekly, isClient, ownerBase58]);
 
   useEffect(() => {
     if (!autoConfirmOpen) return;

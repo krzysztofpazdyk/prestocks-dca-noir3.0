@@ -706,7 +706,16 @@ function usePredcaImpl() {
   }, [program, owner, connection, mint]);
 
   useEffect(() => {
-    void refresh();
+    // refresh() sets loading synchronously. A microtask keeps that off the
+    // effect body so the first read is still the next turn, not a later tick.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      void refresh();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   useEffect(() => {

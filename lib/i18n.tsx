@@ -6,14 +6,21 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import {
+  DEFAULT_LOCALE,
+  LOCALE_STORAGE_KEY,
+  getLocaleServerSnapshot,
+  getLocaleSnapshot,
+  subscribeLocale,
+  writeStoredLocale,
+  type Locale,
+} from "@/lib/locale-store";
 
-export type Locale = "pl" | "en";
-
-export const LOCALE_STORAGE_KEY = "noir3.predca_locale";
-export const DEFAULT_LOCALE: Locale = "pl";
+export type { Locale };
+export { DEFAULT_LOCALE, LOCALE_STORAGE_KEY };
 
 type Dict = Record<string, string>;
 
@@ -814,32 +821,21 @@ type I18nContextValue = {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
-function readStoredLocale(): Locale {
-  try {
-    const v = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    if (v === "pl" || v === "en") return v;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_LOCALE;
-}
-
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
+  // Server and the hydration render use DEFAULT_LOCALE. The stored language
+  // is applied on the client snapshot, immediately after hydration.
+  const locale = useSyncExternalStore(
+    subscribeLocale,
+    getLocaleSnapshot,
+    getLocaleServerSnapshot,
+  );
 
   useEffect(() => {
-    const stored = readStoredLocale();
-    setLocaleState(stored);
-    document.documentElement.lang = stored;
-  }, []);
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const setLocale = useCallback((next: Locale) => {
-    setLocaleState(next);
-    try {
-      window.localStorage.setItem(LOCALE_STORAGE_KEY, next);
-    } catch {
-      /* ignore */
-    }
+    writeStoredLocale(next);
     document.documentElement.lang = next;
   }, []);
 

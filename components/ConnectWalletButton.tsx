@@ -10,6 +10,7 @@ import {
 } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useI18n } from "@/lib/i18n";
+import { useIsClient } from "@/lib/hooks/useIsClient";
 import { shortPk } from "@/lib/predca";
 import {
   adapterHasAccount,
@@ -486,8 +487,8 @@ function isDetected(ready: WalletReadyState | undefined): boolean {
 
 export function ConnectWalletButton() {
   const { t } = useI18n();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // False on the server and during hydration, true on the next client render.
+  const mounted = useIsClient();
   if (!mounted) return <Placeholder label={t("nav.selectWallet")} />;
   if (!privyAppId()) return <AdapterConnect />;
   return <PrivyConnect />;
