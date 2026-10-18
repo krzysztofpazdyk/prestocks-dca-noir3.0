@@ -172,6 +172,12 @@ const pl: Dict = {
     "Zakup on-chain OK · sig {sig}… · ${amount} z vault → {tokens}",
   "buy.preview": "≈ {legs}",
   "buy.previewLeg": "{tokens} {name} po {price}",
+  "buy.stepAta": "Krok 1/2: tworzę konta tokenów (podpis)",
+  "buy.stepBuy": "Krok 2/2: zakup (podpis)",
+  "buy.ataCreatedNoVault":
+    "Konta tokenów zostały utworzone, ale zakup nie przeszedł. Środki z vaulta nie zostały ruszone.",
+  "buy.ataUnconfirmedNoBuy":
+    "Konta tokenów nie zostały potwierdzone. Zakup nie został wysłany. Środki z vaulta nie zostały ruszone.",
   "msg.purchaseFail":
     "Zakup nieudany — szczegóły w sekcji Predca powyżej (czerwony komunikat).",
   "msg.purchasePending":
@@ -556,6 +562,12 @@ const en: Dict = {
     "On-chain purchase OK · sig {sig}… · ${amount} from vault → {tokens}",
   "buy.preview": "≈ {legs}",
   "buy.previewLeg": "{tokens} {name} at {price}",
+  "buy.stepAta": "Step 1/2: creating token accounts (signature)",
+  "buy.stepBuy": "Step 2/2: purchase (signature)",
+  "buy.ataCreatedNoVault":
+    "Token accounts were created, but the purchase did not go through. Vault funds were not touched.",
+  "buy.ataUnconfirmedNoBuy":
+    "Token accounts were not confirmed. The purchase was not sent. Vault funds were not touched.",
   "msg.purchaseFail":
     "Purchase failed — see details in the Predca section above (red message).",
   "msg.purchasePending":
