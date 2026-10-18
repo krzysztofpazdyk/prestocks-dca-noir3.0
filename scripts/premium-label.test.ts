@@ -115,6 +115,14 @@ test("token-vs-valuation copy replaces premium vs market", () => {
     "zniżka vs SPCXx {pct}",
     "discount vs SPCXx {pct}",
   ]);
+  assert.deepEqual(values(i18n, "premium.spacex.premiumLabel"), [
+    "premia vs SPCXx",
+    "premium vs SPCXx",
+  ]);
+  assert.deepEqual(values(i18n, "premium.spacex.premium"), [
+    "premia vs SPCXx {pct}",
+    "premium vs SPCXx {pct}",
+  ]);
   assert.deepEqual(values(i18n, "premium.spacex.noData"), ["brak danych", "no data"]);
   const tip = values(i18n, "premium.spacex.tooltip");
   assert.equal(tip.length, 2);
@@ -123,9 +131,13 @@ test("token-vs-valuation copy replaces premium vs market", () => {
   assert.match(tip[0], /ok\. 1%/);
   assert.match(tip[0], /12\.03\.2027 23:59 UTC/);
   assert.match(tip[0], /nie jest czystą premią IPO/);
+  assert.match(tip[0], /Wartość dodatnia to premia vs SPCXx/);
+  assert.match(tip[0], /ujemna to zniżka vs SPCXx/);
   assert.match(tip[1], /6-month lockup/);
   assert.match(tip[1], /12 Dec 2026/);
   assert.match(tip[1], /12 Mar 2027 23:59 UTC/);
+  assert.match(tip[1], /positive value is a premium vs SPCXx/);
+  assert.match(tip[1], /negative value is a discount vs SPCXx/);
 });
 
 test("SpaceX copy is a discount versus SPCXx and keeps the buyer colors", () => {
@@ -135,7 +147,16 @@ test("SpaceX copy is a discount versus SPCXx and keeps the buyer colors", () => 
   assert.equal(live.labelKey, "premium.spacex.label");
   assert.equal(live.tone, "discount");
   assert.equal(live.withPct, true);
+  const above = premiumCopy("SpaceX", 3.2, false, "cell");
+  assert.equal(above.textKey, "premium.spacex.premium");
+  assert.equal(above.labelKey, "premium.spacex.premiumLabel");
+  assert.equal(above.tone, "premium");
+  assert.equal(above.withPct, true);
   assert.equal(premiumCopy("SpaceX", 4, false, "cell").tone, "premium");
+  const flat = premiumCopy("SpaceX", 0.01, false, "cell");
+  assert.equal(flat.textKey, "premium.spacex.value");
+  assert.equal(flat.labelKey, "premium.spacex.label");
+  assert.equal(flat.tone, "neutral");
   const none = premiumCopy("SpaceX", null, false, "cell");
   assert.equal(none.textKey, "premium.spacex.noData");
   assert.equal(none.tone, "neutral");

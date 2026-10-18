@@ -329,6 +329,7 @@ const pl: Dict = {
   "history.staleRuns": "Ostatni odczyt — RPC niedostępne, dane mogą być nieaktualne.",
   "history.loading": "Ładowanie historii on-chain…",
   "history.runMeta": "Run #{index} · budżet ~${budget} · slot {slot}",
+  "history.runMetaUnknown": "Run #{index} · budżet {unknown} · slot {slot}",
   "history.buyPrice": "po {price} · {units} szt.",
   "history.legPnl": "teraz {value} · {pnl}",
   "history.runPnl": "PnL: {pnl}",
@@ -345,6 +346,10 @@ const pl: Dict = {
   "positions.legacyHint":
     "Wcześniejsze zakupy na Devnecie mintowały tokeny 1:1 do USDC — wyceniamy je po koszcie.",
   "positions.mismatch": "Saldo tokenów różni się od historii zakupów.",
+  "runPrice.loading": "dane o cenie zakupu się ładują",
+  "runPrice.unknown": "—",
+  "balances.warning":
+    "Salda tokenów chwilowo niedostępne — pokazuję poprzednie. Odśwież za chwilę.",
 
   "prices.source": "Ceny: Jupiter (mainnet PreStocks)",
   "prices.stale": "ceny: ostatni odczyt · {time}",
@@ -378,9 +383,11 @@ const pl: Dict = {
   "premium.tooltip": "Różnica między ceną tokena a wyceną spółki z PreStocks",
   "premium.spacex.label": "zniżka vs SPCXx",
   "premium.spacex.value": "zniżka vs SPCXx {pct}",
+  "premium.spacex.premiumLabel": "premia vs SPCXx",
+  "premium.spacex.premium": "premia vs SPCXx {pct}",
   "premium.spacex.noData": "brak danych",
   "premium.spacex.tooltip":
-    "Różnica obejmuje 6-miesięczny lockup akcji bazowych (do ok. 12.12.2026) i opłatę konwersji ok. 1%, więc nie jest czystą premią IPO. Token PreStocks SPACEX wygasa 12.03.2027 23:59 UTC.",
+    "Wartość dodatnia to premia vs SPCXx, ujemna to zniżka vs SPCXx. Różnica obejmuje 6-miesięczny lockup akcji bazowych (do ok. 12.12.2026) i opłatę konwersji ok. 1%, więc nie jest czystą premią IPO. Token PreStocks SPACEX wygasa 12.03.2027 23:59 UTC.",
   "premium.estimate": "szacunek",
   "rank.premiumBasis.server_estimate": "Ranking AI użył premii szacunkowych serwera (nie live). Token vs wycena przy spółkach: live z Jupitera.",
   "rank.premiumBasis.live": "Ranking użył premii live z Jupitera; spółki bez danych liczone bez premii.",
@@ -702,6 +709,7 @@ const en: Dict = {
   "history.staleRuns": "Last read — RPC unavailable, data may be stale.",
   "history.loading": "Loading on-chain history…",
   "history.runMeta": "Run #{index} · budget ~${budget} · slot {slot}",
+  "history.runMetaUnknown": "Run #{index} · budget {unknown} · slot {slot}",
   "history.buyPrice": "at {price} · {units} units",
   "history.legPnl": "now {value} · {pnl}",
   "history.runPnl": "P/L: {pnl}",
@@ -718,6 +726,10 @@ const en: Dict = {
   "positions.legacyHint":
     "Earlier Devnet buys minted tokens 1:1 to USDC — they are valued at cost.",
   "positions.mismatch": "Token balance differs from purchase history.",
+  "runPrice.loading": "purchase price is loading",
+  "runPrice.unknown": "—",
+  "balances.warning":
+    "Token balances are temporarily unavailable — showing the previous ones. Refresh in a moment.",
 
   "prices.source": "Prices: Jupiter (mainnet PreStocks)",
   "prices.stale": "prices: last read · {time}",
@@ -751,9 +763,11 @@ const en: Dict = {
   "premium.tooltip": "Difference between the token price and the company valuation from PreStocks",
   "premium.spacex.label": "discount vs SPCXx",
   "premium.spacex.value": "discount vs SPCXx {pct}",
+  "premium.spacex.premiumLabel": "premium vs SPCXx",
+  "premium.spacex.premium": "premium vs SPCXx {pct}",
   "premium.spacex.noData": "no data",
   "premium.spacex.tooltip":
-    "The difference includes a 6-month lockup of the underlying shares (until about 12 Dec 2026) and a conversion fee of about 1%, so it is not a pure IPO premium. The PreStocks SPACEX token expires 12 Mar 2027 23:59 UTC.",
+    "A positive value is a premium vs SPCXx; a negative value is a discount vs SPCXx. The difference includes a 6-month lockup of the underlying shares (until about 12 Dec 2026) and a conversion fee of about 1%, so it is not a pure IPO premium. The PreStocks SPACEX token expires 12 Mar 2027 23:59 UTC.",
   "premium.estimate": "estimate",
   "rank.premiumBasis.server_estimate": "AI ranking used the server's estimated premiums (not live). Token vs valuation shown next to each name is live from Jupiter.",
   "rank.premiumBasis.live": "Ranking used live Jupiter premiums; names without data scored without a premium.",
