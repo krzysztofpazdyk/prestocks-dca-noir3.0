@@ -185,7 +185,7 @@ test("rejection is recognized from the class and from the old Polish sentence", 
   assert.equal(english.message, `Transaction rejected by Devnet. ${SIG}`);
   assert.equal(isOnChainSignatureReject(english), true);
   assert.equal(isOnChainSignatureReject(new Error(`Transakcja odrzucona przez Devnet. ${SIG}`)), true);
-  assert.equal(isOnChainSignatureReject(new Error(`Transaction rejected by Devnet. ${SIG}`)), false);
+  assert.equal(isOnChainSignatureReject(new Error(`Transaction rejected by Devnet. ${SIG}`)), true);
   assert.equal(isOnChainSignatureReject(new SignatureNotConfirmedError(SIG, 1000)), false);
 });
 
@@ -344,7 +344,7 @@ test("the buy hook reads a fresh vault and does not resend a failed signature", 
   const buy = hook.slice(hook.indexOf("async function simulateBuy"), hook.indexOf("function clearToasts"));
   assert.match(buy, /fetchVaultBalance\(connection, owner\)/);
   assert.match(buy, /resolveVaultBalanceForBuy\(freshVault, vaultUsdc, vaultReadError\)/);
-  assert.match(buy, /Za mało USDC w vault \(on-chain\)/);
+  assert.match(buy, /msg\.vaultLowOnChain/);
   assert.match(buy, /withOneNetworkRetry\(\(\) =>\s*connection\.getMultipleAccountsInfo\(atas\)/);
   assert.match(buy, /maxSupportedTransactionVersion: 0/);
   assert.match(buy, /commitment: "confirmed"/);

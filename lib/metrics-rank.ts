@@ -6,6 +6,7 @@
  */
 
 import { filterProducts, readExclusions } from "@/lib/exclusions";
+import { shown } from "@/lib/i18n";
 import { premiumBasisFor } from "@/lib/premium-view";
 import type { RankPrefs } from "@/lib/rank-prefs";
 import {
@@ -68,7 +69,7 @@ export function metricsRank(
   scores.sort((a, b) => b.score - a.score);
   return {
     mode: "metrics_fallback",
-    sourceLabel: "Źródło: metryki (bez AI — awaria Jev)",
+    sourceLabel: shown("rank.source.metricsJevDown"),
     pipeline: ["prestocks", "metrics_rank"],
     top3: scores.slice(0, 3),
     scores,

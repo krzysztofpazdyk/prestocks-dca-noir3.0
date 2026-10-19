@@ -1,3 +1,4 @@
+import { shown } from "@/lib/i18n";
 import type { MockTokenBalance, RunRecordData, UserConfigData } from "@/lib/predca";
 
 export type PredcaStatus =
@@ -145,5 +146,6 @@ export function withdrawUi(
   return "hidden";
 }
 
-export const RPC_READ_ERROR_MSG =
-  "Brak połączenia z RPC Devnet — nie udało się odczytać konta. Dane mogą być nieaktualne. Kliknij Odśwież.";
+export function rpcReadErrorMessage(): string {
+  return shown("predca.rpcReadError");
+}

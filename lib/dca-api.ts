@@ -8,6 +8,7 @@ import {
   companyDataFromRankMap,
   rememberCompanyRecords,
 } from "@/lib/company-data";
+import { shown } from "@/lib/i18n";
 import { dcaApiBase, readTypesafeKey, readXaiKey } from "@/lib/keys";
 import { ensureRuntimeConfig } from "@/lib/runtime-config";
 import { metricsRank } from "@/lib/metrics-rank";
@@ -71,7 +72,7 @@ async function fetchWithTimeout(
       /* keep url */
     }
     if (/Failed to fetch|Load failed|NetworkError/i.test(msg)) {
-      throw new Error(`Hosted Jev (${host}) nieosiągalny`);
+      throw new Error(shown("rank.err.hostedUnreachable", { host }));
     }
     throw e;
   } finally {
@@ -101,9 +102,7 @@ function mapRunToRank(
   const premiumsMatter = readRankPrefs().premiumsMatter;
   return {
     mode: isMetrics ? "metrics_fallback" : mode,
-    sourceLabel: isMetrics
-      ? "Źródło: metryki (bez AI — Jev niedostępny)"
-      : sourceLabel,
+    sourceLabel: isMetrics ? shown("rank.source.metricsNoJev") : sourceLabel,
     pipeline,
     top3: filled,
     scores: scores.length ? scores : filled,
@@ -136,8 +135,8 @@ export async function fetchLatestRun(): Promise<RankResult | null> {
     run,
     byok ? "byok_ai" : "metrics_fallback",
     byok
-      ? "Źródło: cache serwera (/run/latest) · masz TypeSafe BYOK"
-      : "Źródło: cache serwera (/run/latest) — bez TypeSafe BYOK (nie Jev klienta)",
+      ? shown("rank.source.cacheByok")
+      : shown("rank.source.cacheNoByok"),
     readExclusions(),
   );
 }
@@ -150,9 +149,7 @@ export async function triggerDryRun(
   await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) {
-    throw new Error(
-      "Adres API nie jest skonfigurowany — nie można wywołać API /run/dry.",
-    );
+    throw new Error(shown("rank.err.noDryApi"));
   }
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -210,9 +207,9 @@ export async function triggerDryRun(
     byok ? "byok_ai" : "metrics_fallback",
     byok
       ? grok
-        ? "Źródło: PreStocks + AI (BYOK · Grok+Jev)"
-        : "Źródło: PreStocks + AI (BYOK · Jev)"
-      : "Źródło: /run/dry bez TypeSafe BYOK (nie Jev klienta)",
+        ? shown("rank.source.grokJev")
+        : shown("rank.source.jev")
+      : shown("rank.source.dryNoByok"),
     apiPrefs.exclusions,
   );
 }
@@ -229,7 +226,7 @@ export async function fetchSampleRun(): Promise<RankResult | null> {
     return mapRunToRank(
       run,
       "metrics_fallback",
-      "Źródło: przykładowy wynik (sample) — nie live Jev",
+      shown("rank.source.sample"),
       readExclusions(),
     );
   } catch {
@@ -257,7 +254,7 @@ export async function postRank(
   await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) {
-    throw new Error("Adres API nie jest skonfigurowany — nie można użyć proxy /rank.");
+    throw new Error(shown("rank.err.noRankProxy"));
   }
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -341,10 +338,10 @@ export function rankResultFromProxy(
   return {
     mode: isMetrics ? "metrics_fallback" : "byok_ai",
     sourceLabel: isMetrics
-      ? "Źródło: metryki (bez AI — Jev niedostępny)"
+      ? shown("rank.source.metricsNoJev")
       : grok
-        ? "Źródło: PreStocks + AI (BYOK · Grok+Jev)"
-        : "Źródło: PreStocks + AI (BYOK · Jev)",
+        ? shown("rank.source.grokJev")
+        : shown("rank.source.jev"),
     pipeline,
     top3: rows.slice(0, 3),
     scores: rows,
@@ -387,9 +384,7 @@ export async function claimFaucetUsdc(
   await ensureRuntimeConfig();
   const base = dcaApiBase();
   if (!base) {
-    throw new Error(
-      "Adres API nie jest skonfigurowany — nie można użyć faucet /faucet/usdc.",
-    );
+    throw new Error(shown("rank.err.noFaucet"));
   }
   const resp = await fetchWithTimeout(
     `${base}/faucet/usdc`,
@@ -407,7 +402,7 @@ export async function claimFaucetUsdc(
   try {
     data = (await resp.json()) as FaucetUsdcResponse & { detail?: unknown };
   } catch {
-    throw new Error(`API /faucet/usdc HTTP ${resp.status} (nie-JSON)`);
+    throw new Error(shown("rank.err.faucetNotJson", { status: resp.status }));
   }
   if (!resp.ok || !data.ok) {
     const detail = data.detail ?? data.error;

@@ -40,7 +40,7 @@ import {
 } from "@/lib/predca-refresh";
 import {
   EMPTY_SNAPSHOT,
-  RPC_READ_ERROR_MSG,
+  rpcReadErrorMessage,
   depositPlan,
   derivePredcaStatus,
   type PredcaSnapshot,
@@ -68,8 +68,6 @@ import {
 } from "@/lib/pending-tx";
 import {
   CONFIRMED_VAULT_BACKGROUND_POLL_MS,
-  CONFIRMED_VAULT_LAG_MSG,
-  CONFIRM_STILL_PENDING_MSG,
   POST_CONFIRM_VAULT_POLL_MS,
   UNRESOLVED_WATCH_MS,
   UNRESOLVED_WATCH_POLL_MS,
@@ -98,7 +96,7 @@ import {
   withOneNetworkRetry,
 } from "@/lib/buy-ata";
 import { getLocaleSnapshot, type Locale } from "@/lib/locale-store";
-import { formatCount, translate } from "@/lib/i18n";
+import { formatCount, shown, translate } from "@/lib/i18n";
 import { privySendFailureMessage } from "@/lib/privy-sign-ui";
 import { fetchJupPrices, emptyJupPrices, type JupPrices } from "@/lib/jup-prices";
 import {
@@ -150,7 +148,6 @@ import {
   priceFeedPda,
   rawToDollars,
   runPricePda,
-  RUN_INDEX_TAKEN_MSG,
   usdcMintOrNull,
   type RunRecordData,
   type TokenBalanceRead,
@@ -266,7 +263,8 @@ function runToLastPurchase(
 
 function rpcReadFailure(e: unknown): string {
   const detail = parseAnchorError(e).replace(/\s+/g, " ").trim().slice(0, 120);
-  return detail ? `${RPC_READ_ERROR_MSG} [${detail}]` : RPC_READ_ERROR_MSG;
+  const base = rpcReadErrorMessage();
+  return detail ? `${base} [${detail}]` : base;
 }
 
 /** Mark a sibling read as handled. A later await still receives the rejection. */
@@ -274,24 +272,31 @@ function markHandled(p: Promise<unknown>): void {
   void p.catch(() => {});
 }
 
-function pendingKindLabelPl(kind: PendingTxKind): string {
+function pendingKindLabel(locale: Locale, kind: PendingTxKind): string {
   switch (kind) {
     case "deposit":
     case "init_deposit":
-      return "wpłata";
+      return translate(locale, "dup.action.deposit");
     case "withdraw":
-      return "wypłata";
+      return translate(locale, "dup.action.withdraw");
     case "buy":
-      return "zakup";
+      return translate(locale, "dup.action.buy");
     case "budget":
-      return "zmiana budżetu";
+      return translate(locale, "tx.kind.budget");
   }
 }
 
 function priorSessionOk(rec: PendingTxRecord): string {
+  const locale = getLocaleSnapshot();
   const short = `${rec.signature.slice(0, 4)}…${rec.signature.slice(-4)}`;
-  const amount = rec.amountUsd != null ? `${rec.amountUsd} USDC · ` : "";
-  return `Transakcja z poprzedniej sesji weszła: ${pendingKindLabelPl(rec.kind)} ${amount}${short}`;
+  const tail =
+    rec.amountUsd != null
+      ? `${formatCount(locale, rec.amountUsd)} USDC · ${short}`
+      : short;
+  return translate(locale, "tx.priorSession", {
+    kind: pendingKindLabel(locale, rec.kind),
+    tail,
+  });
 }
 
 function txAmount(locale: Locale, amount: number, digits?: number): string {
@@ -333,11 +338,7 @@ function browserStorage(): StorageLike | null {
 }
 
 function privySendNotReady(): Promise<string> {
-  return Promise.reject(
-    new Error(
-      "Portfel Privy jest wybrany, ale podpis jeszcze nie jest gotowy. Spróbuj ponownie.",
-    ),
-  );
+  return Promise.reject(new Error(shown("privy.signNotReady")));
 }
 
 function usePredcaImpl() {
@@ -909,7 +910,7 @@ function usePredcaImpl() {
       }
       await new Promise((resolve) => setTimeout(resolve, 800));
     }
-    throw new Error(CONFIRM_STILL_PENDING_MSG);
+    throw new Error(shown("tx.confirmStillPending"));
   }
 
   async function pollVaultAbove(before: number, budgetMs: number): Promise<boolean> {
@@ -979,7 +980,7 @@ function usePredcaImpl() {
     }
     const note =
       !increased && signature
-        ? `${CONFIRMED_VAULT_LAG_MSG} ${explorerTxUrl(signature)}`
+        ? `${shown("tx.vaultLag")} ${explorerTxUrl(signature)}`
         : outcome.ok;
     await refresh();
     if (vaultFollowEpoch.current !== epoch) return "ok";
@@ -1511,7 +1512,7 @@ function usePredcaImpl() {
     }
     if (isCancelled() || (ownerRef.current?.toBase58() ?? null) !== ownerAtStart) return;
     if (records.length === 0) return;
-    setSessionCheckMsg("Sprawdzam transakcję z poprzedniej sesji…");
+    setSessionCheckMsg(shown("tx.sessionCheck"));
     for (const rec of records) {
       if (!pollStartedRef.current.has(rec.signature)) {
         pollStartedRef.current.set(rec.signature, Date.now());
@@ -1576,20 +1577,20 @@ function usePredcaImpl() {
     if (!program || !owner || !mint || !provider) {
       reportError(
         !mint
-          ? `Brak NEXT_PUBLIC_USDC_MINT. Ustaw mock mint (${MOCK_USDC_MINT}) na Devnet.`
-          : "Podłącz portfel.",
+          ? shown("tx.err.noUsdcMint", { mint: MOCK_USDC_MINT })
+          : shown("tx.err.connectWallet"),
       );
       return null;
     }
     const raw = dollarsToRaw(amountUsd);
     if (raw.lte(new BN(0))) {
-      reportError("Kwota depozytu musi być > 0.");
+      reportError(shown("tx.err.depositPositive"));
       return null;
     }
     const ownerUsdcAtaPk = ownerUsdcAta(owner, mint);
     const plan = depositPlan(configState, rpcError);
     if (plan === "blocked") {
-      reportError(RPC_READ_ERROR_MSG);
+      reportError(rpcReadErrorMessage());
       return null;
     }
 
@@ -1603,9 +1604,7 @@ function usePredcaImpl() {
           : 0;
       const budgetRaw = dollarsToRaw(budgetUsd);
       if (budgetRaw.lte(new BN(0))) {
-        reportError(
-          "Przy pierwszej wpłacie ustaw budżet tygodniowy > 0 (init + deposit w jednej tx).",
-        );
+        reportError(shown("tx.err.firstDepositBudget"));
         return null;
       }
       const initLocale = getLocaleSnapshot();
@@ -1660,24 +1659,22 @@ function usePredcaImpl() {
     if (!program || !owner || !mint) {
       reportError(
         !mint
-          ? `Brak NEXT_PUBLIC_USDC_MINT. Ustaw mock mint (${MOCK_USDC_MINT}) na Devnet.`
-          : "Podłącz portfel.",
+          ? shown("tx.err.noUsdcMint", { mint: MOCK_USDC_MINT })
+          : shown("tx.err.connectWallet"),
       );
       return null;
     }
     if (rpcError) {
-      reportError(RPC_READ_ERROR_MSG);
+      reportError(rpcReadErrorMessage());
       return null;
     }
     if (!config) {
-      reportError(
-        "Predca nie jest zainicjalizowane. Zrób pierwszą wpłatę (Wpłać) — init + deposit w jednej tx.",
-      );
+      reportError(shown("tx.err.predcaNotInit"));
       return null;
     }
     const raw = dollarsToRaw(amountUsd);
     if (raw.lte(new BN(0))) {
-      reportError("Kwota wypłaty musi być > 0.");
+      reportError(shown("tx.err.withdrawPositive"));
       return null;
     }
     const ownerUsdcAtaPk = ownerUsdcAta(owner, mint);
@@ -1702,24 +1699,22 @@ function usePredcaImpl() {
 
   async function setWeeklyBudget(weeklyBudgetUsd: number) {
     if (!program || !owner) {
-      reportError("Podłącz portfel.");
+      reportError(shown("tx.err.connectWallet"));
       return null;
     }
     if (rpcError) {
-      reportError(RPC_READ_ERROR_MSG);
+      reportError(rpcReadErrorMessage());
       return null;
     }
     // Lone initialize_user is not a Settings/auto-buy path. The account is
     // created only by the first deposit (initialize_user + deposit_usdc).
     if (!config) {
-      reportError(
-        "Najpierw wpłać USDC na Overview — konto Predca powstaje razem z pierwszą wpłatą.",
-      );
+      reportError(shown("auto.status.notReady"));
       return null;
     }
     const raw = dollarsToRaw(weeklyBudgetUsd);
     if (raw.lte(new BN(0))) {
-      reportError("Budżet tygodniowy musi być > 0.");
+      reportError(shown("tx.err.budgetPositive"));
       return null;
     }
     return withTx(
@@ -1771,31 +1766,27 @@ function usePredcaImpl() {
     if (!program || !owner || !mint) {
       reportError(
         !mint
-          ? `Brak NEXT_PUBLIC_USDC_MINT. Ustaw mock mint (${MOCK_USDC_MINT}) na Devnet.`
-          : "Podłącz portfel.",
+          ? shown("tx.err.noUsdcMint", { mint: MOCK_USDC_MINT })
+          : shown("tx.err.connectWallet"),
       );
       return null;
     }
     if (rpcError) {
-      reportError(RPC_READ_ERROR_MSG);
+      reportError(rpcReadErrorMessage());
       return null;
     }
     if (!config) {
-      reportError(
-        "Predca nie jest zainicjalizowane. Zrób pierwszą wpłatę (Wpłać) — init + deposit w jednej tx.",
-      );
+      reportError(shown("tx.err.predcaNotInit"));
       return null;
     }
 
     const { mints, names, missing } = resolveTop3Mints(tokenNames);
     if (missing.length > 0) {
-      reportError(
-        `Brak mapowania mint dla: ${missing.join(", ")}. Sprawdź lib/devnet-mock-mints.`,
-      );
+      reportError(shown("tx.err.missingMints", { names: missing.join(", ") }));
       return null;
     }
     if (mints.length !== 3) {
-      reportError("Potrzebne dokładnie 3 tokeny top-3 z mapowaniem mint.");
+      reportError(shown("tx.err.needThreeMints"));
       return null;
     }
 
@@ -1809,9 +1800,7 @@ function usePredcaImpl() {
       // (hook closure would otherwise keep the pre-sync weeklyBudgetUsd).
       const freshConfig = await fetchUserConfig(program, owner);
       if (!freshConfig) {
-        reportError(
-          "Predca nie jest zainicjalizowane. Zrób pierwszą wpłatę (Wpłać) — init + deposit w jednej tx.",
-        );
+        reportError(shown("tx.err.predcaNotInit"));
         return null;
       }
       const budget = rawToDollars(freshConfig.weeklyBudgetUsdc);
@@ -1828,8 +1817,12 @@ function usePredcaImpl() {
       }
       const vaultNow = resolveVaultBalanceForBuy(freshVault, vaultUsdc, vaultReadError);
       if (vaultNow == null || vaultNow < totalDebit) {
+        const locale = getLocaleSnapshot();
         reportError(
-          `Za mało USDC w vault (on-chain): ${(vaultNow ?? 0).toFixed(2)} < ${totalDebit.toFixed(2)}.`,
+          translate(locale, "msg.vaultLowOnChain", {
+            have: formatCount(locale, vaultNow ?? 0, { min: 2, max: 2 }),
+            need: formatCount(locale, totalDebit, { min: 2, max: 2 }),
+          }),
         );
         return null;
       }
@@ -1843,9 +1836,7 @@ function usePredcaImpl() {
         return null;
       }
       if (scanned == null) {
-        reportError(
-          "Brak wolnego indeksu RunRecord (limit skanu). Odśwież i spróbuj ponownie.",
-        );
+        reportError(shown("tx.err.noFreeRunIndex"));
         return null;
       }
       const nextIndex = scanned;
@@ -2028,7 +2019,7 @@ function usePredcaImpl() {
               submitOnce: submitAndRemember,
             });
           } catch (e2) {
-            if (isRunAlreadyExists(e2)) throw new Error(RUN_INDEX_TAKEN_MSG);
+            if (isRunAlreadyExists(e2)) throw new Error(shown("auto.error.predca.6004"));
             throw e2;
           }
         }

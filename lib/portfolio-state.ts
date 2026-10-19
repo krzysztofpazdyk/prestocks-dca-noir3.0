@@ -1,3 +1,5 @@
+import { formatCount, translate } from "@/lib/i18n";
+import { getLocaleSnapshot } from "@/lib/locale-store";
 import {
   HOLDINGS,
   LAST_PURCHASE,
@@ -158,8 +160,15 @@ export function applyPurchase(
   const amountUsd = Math.max(0, Number(opts.amountUsd) || 0);
   const vaultUsdc = Number(state.vaultUsdc);
   if (!Number.isFinite(vaultUsdc) || vaultUsdc < amountUsd) {
+    const locale = getLocaleSnapshot();
     throw new Error(
-      `Za mało USDC w vault: ${Number.isFinite(vaultUsdc) ? vaultUsdc.toFixed(2) : "0.00"} < ${amountUsd.toFixed(2)}.`,
+      translate(locale, "msg.vaultLow", {
+        have: formatCount(locale, Number.isFinite(vaultUsdc) ? vaultUsdc : 0, {
+          min: 2,
+          max: 2,
+        }),
+        need: formatCount(locale, amountUsd, { min: 2, max: 2 }),
+      }),
     );
   }
   const tokens = opts.tokens.slice(0, 3);

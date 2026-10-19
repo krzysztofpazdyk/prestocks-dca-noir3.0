@@ -35,14 +35,36 @@ export const PRESTOCKS_SNAPSHOT_DATE = "19.09.2026";
 
 const ORIGIN = "https://prestocks.com";
 
+export type ProductNoticeVars = {
+  detail?: string;
+  detailKey?: string;
+  date?: string;
+};
+
 export type ProductsFetchResult = {
   products: PrestocksProduct[];
   totals: unknown;
   premiumsSource: string;
   dataSource: "live" | "live_proxy" | "api_proxy" | "session" | "snapshot";
   corsError: boolean;
+  /** Older callers and a saved Polish sentence. New notes use errorKey. */
   errorPl: string | null;
+  errorKey?: string | null;
+  errorVars?: ProductNoticeVars;
 };
+
+/** Resolve a nested detail key when the note is shown. No locale import here. */
+export function fillNoticeVars(
+  vars: ProductNoticeVars | undefined,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): Record<string, string> {
+  if (!vars) return {};
+  const out: Record<string, string> = {};
+  if (vars.detailKey) out.detail = t(vars.detailKey);
+  else if (vars.detail != null) out.detail = vars.detail;
+  if (vars.date != null) out.date = vars.date;
+  return out;
+}
 
 function assetUrl(path: string): string {
   const base = (
@@ -385,7 +407,8 @@ export async function fetchPrestocksProducts(
     }
   }
 
-  let directMsg = "pominięto bezpośrednie prestocks.com";
+  let directDetailKey: string | null = "prestocks.skippedDirect";
+  let directDetail = "";
   let looksCors = false;
   if (!skipDirectPrestocks()) {
     try {
@@ -401,10 +424,11 @@ export async function fetchPrestocksProducts(
         errorPl: null,
       };
     } catch (e) {
-      directMsg = e instanceof Error ? e.message : String(e);
+      directDetailKey = null;
+      directDetail = e instanceof Error ? e.message : String(e);
       looksCors =
-        /Failed to fetch|NetworkError|CORS|blocked|Load failed/i.test(directMsg) ||
-        directMsg === "Failed to fetch";
+        /Failed to fetch|NetworkError|CORS|blocked|Load failed/i.test(directDetail) ||
+        directDetail === "Failed to fetch";
     }
   }
 
@@ -419,9 +443,8 @@ export async function fetchPrestocksProducts(
         premiumsSource: proxied.premiumsSource,
         dataSource: "api_proxy",
         corsError: looksCors,
-        errorPl: looksCors
-          ? "CORS zablokował prestocks.com w przeglądarce — użyto proxy API."
-          : null,
+        errorPl: null,
+        errorKey: looksCors ? "prestocks.corsProxy" : null,
       };
     }
   } catch {
@@ -436,8 +459,8 @@ export async function fetchPrestocksProducts(
       premiumsSource: "sessionStorage",
       dataSource: "session",
       corsError: looksCors,
-      errorPl:
-        "Nie udało się pobrać live PreStocks (CORS/sieć). Pokazuję ostatni udany fetch z tej sesji.",
+      errorPl: null,
+      errorKey: "prestocks.sessionFallback",
     };
   }
 
@@ -460,7 +483,9 @@ export async function fetchPrestocksProducts(
       premiumsSource,
       dataSource: "snapshot",
       corsError: looksCors,
-      errorPl: `Brak live PreStocks. Użyto statycznego snapshota z ${PRESTOCKS_SNAPSHOT_DATE} (nie live).`,
+      errorPl: null,
+      errorKey: "prestocks.snapshotDated",
+      errorVars: { date: PRESTOCKS_SNAPSHOT_DATE },
     };
   } catch {
     return {
@@ -469,7 +494,11 @@ export async function fetchPrestocksProducts(
       premiumsSource: "none",
       dataSource: "snapshot",
       corsError: looksCors,
-      errorPl: `Błąd PreStocks: ${directMsg}. Brak snapshota.`,
+      errorPl: null,
+      errorKey: "prestocks.snapshotError",
+      errorVars: directDetailKey
+        ? { detailKey: directDetailKey }
+        : { detail: directDetail },
     };
   }
 }
