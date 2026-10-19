@@ -9,6 +9,9 @@ import {
   Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
+import { translate } from "@/lib/i18n";
+import { getLocaleSnapshot, type Locale } from "@/lib/locale-store";
+import { isRateOrNetworkError, parseAnchorError } from "@/lib/predca";
 
 /** Legacy transaction packet limit, including the signature slot. */
 export const LEGACY_TX_PACKET_BYTES = 1232;
@@ -145,8 +148,50 @@ export function classifySignatureRow(
   return "pending";
 }
 
-export function signatureFailedError(signature: string): Error {
-  return new Error(`Transakcja odrzucona przez Devnet. ${signature}`);
+/**
+ * On-chain rejection. `onChainReject` is how the app recognizes it.
+ * The Polish sentence stays only as a fallback for messages saved earlier.
+ */
+export class SignatureFailedError extends Error {
+  readonly signature: string;
+  readonly onChainReject = true;
+
+  constructor(signature: string, message: string) {
+    super(message);
+    this.name = "SignatureFailedError";
+    this.signature = signature;
+  }
+}
+
+/** Readable Anchor reason from logs, or null when the logs name no known error. */
+export function reasonFromAnchorLogs(logs: readonly string[]): string | null {
+  const lines = logs.map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) return null;
+  const parsed = parseAnchorError({ logs: lines, message: "" }).trim();
+  return parsed.length > 0 ? parsed : null;
+}
+
+export function signatureFailedMessage(
+  signature: string,
+  reason?: string | null,
+  locale?: Locale,
+): string {
+  const clean = reason?.replace(/\s+/g, " ").trim() ?? "";
+  if (clean.length > 0) {
+    return clean.includes(signature) ? clean : `${clean} ${signature}`;
+  }
+  return translate(locale ?? getLocaleSnapshot(), "tx.err.rejected", { signature });
+}
+
+export function signatureFailedError(
+  signature: string,
+  reason?: string | null,
+  locale?: Locale,
+): SignatureFailedError {
+  return new SignatureFailedError(
+    signature,
+    signatureFailedMessage(signature, reason, locale),
+  );
 }
 
 export type SignaturePollOptions = {
@@ -154,12 +199,41 @@ export type SignaturePollOptions = {
   intervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /**
+   * One read of logs after the signature lands with `err`.
+   * A throw, null, or no recognized reason keeps the fallback message.
+   * This does not send the transaction again.
+   */
+  readLogs?: (signature: string) => Promise<readonly string[] | null | undefined>;
 };
+
+/** One pause, then a second read. Anything already sent must not use this. */
+export const ACCOUNT_LOOKUP_RETRY_MS = 400;
+
+export async function withOneNetworkRetry<T>(
+  read: () => Promise<T>,
+  opts?: {
+    sleep?: (ms: number) => Promise<void>;
+    pauseMs?: number;
+  },
+): Promise<T> {
+  try {
+    return await read();
+  } catch (err) {
+    if (!isRateOrNetworkError(err)) throw err;
+    const sleep = opts?.sleep ?? defaultSleep;
+    await sleep(opts?.pauseMs ?? ACCOUNT_LOOKUP_RETRY_MS);
+    return await read();
+  }
+}
 
 /**
  * Confirm without a websocket. `getStatuses` is `getSignatureStatuses`.
- * Throws `SignatureNotConfirmedError` when the limit passes, or the
- * Devnet rejection text when the signature landed with an error.
+ * A rate limit or a dropped connection while reading status counts as
+ * "still pending" and the loop keeps going until the time limit.
+ * The limit always throws `SignatureNotConfirmedError` (tracked signature).
+ * Any other status-read error is thrown as-is.
+ * A landed `err` throws `SignatureFailedError` and does not send again.
  */
 export async function confirmSignatureByPolling(
   getStatuses: (signature: string) => Promise<ReadonlyArray<SignatureStatusRow>>,
@@ -170,18 +244,38 @@ export async function confirmSignatureByPolling(
   const intervalMs = options.intervalMs ?? SIGNATURE_POLL_INTERVAL_MS;
   const sleep = options.sleep ?? defaultSleep;
   const now = options.now ?? Date.now;
+  const readLogs = options.readLogs;
   const started = now();
   for (;;) {
-    const rows = await getStatuses(signature);
-    const kind = classifySignatureRow(rows[0] ?? null);
+    let rows: ReadonlyArray<SignatureStatusRow> | null = null;
+    try {
+      rows = await getStatuses(signature);
+    } catch (err) {
+      if (!isRateOrNetworkError(err)) throw err;
+    }
+    const kind = classifySignatureRow(rows?.[0] ?? null);
     if (kind === "confirmed") return;
-    if (kind === "failed") throw signatureFailedError(signature);
+    if (kind === "failed") throw await errorForFailedSignature(signature, readLogs);
     const elapsed = now() - started;
     if (elapsed >= timeoutMs) {
       throw new SignatureNotConfirmedError(signature, timeoutMs);
     }
     const wait = Math.min(intervalMs, timeoutMs - elapsed);
     await sleep(wait);
+  }
+}
+
+async function errorForFailedSignature(
+  signature: string,
+  readLogs: SignaturePollOptions["readLogs"],
+): Promise<SignatureFailedError> {
+  if (!readLogs) return signatureFailedError(signature);
+  try {
+    const logs = await readLogs(signature);
+    if (!logs || logs.length === 0) return signatureFailedError(signature);
+    return signatureFailedError(signature, reasonFromAnchorLogs(logs));
+  } catch {
+    return signatureFailedError(signature);
   }
 }
 

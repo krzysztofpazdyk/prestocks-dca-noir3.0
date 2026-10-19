@@ -55,6 +55,9 @@ import { usePredca } from "@/lib/hooks/usePredca";
 import { keeperEnabledForConnectedOwner } from "@/lib/keeper-enabled";
 import { unresolvedSignatureBlocksTx } from "@/lib/vault-follow-up";
 
+/** Low-vault copy in Polish, English, and sentences saved before i18n. */
+const VAULTISH_REASON = /vault|USDC|za mało|Za mało|vault_low|not enough/i;
+
 export type AutoBuyPhase =
   | "idle"
   | "ranking"
@@ -248,7 +251,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
             setPhase("error");
             setMessage(
               res.error?.includes("signature") || res.error?.includes("sign_")
-                ? `Podpis odrzucony: ${res.error}`
+                ? tRef.current("auto.signRejected", { error: res.error ?? "" })
                 : res.error || "Keeper disable failed",
             );
           }
@@ -274,7 +277,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
     if (!Number.isFinite(amount) || amount <= 0) {
       bannerHoldUntilRef.current = Date.now() + BANNER_HOLD_MS;
       setPhase("error");
-      setMessage("Budżet tygodniowy musi być > 0.");
+      setMessage(tRef.current("tx.err.budgetPositive"));
       return;
     }
     // Snapshot. The layout effect has already copied this render's pubkey.
@@ -297,7 +300,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
         bannerHoldUntilRef.current = Date.now() + BANNER_HOLD_MS;
         setPhase("blocked");
         setBlockReason("need_wallet");
-        setMessage("Portfel musi obsługiwać signMessage (włącz auto-buy wymaga podpisu).");
+        setMessage(tRef.current("auto.needSignMessage"));
         return;
       }
       writeWeeklyBudgetUsd(amount, cycleOwner);
@@ -350,7 +353,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
           setPhase("error");
           setMessage(
             predcaRef.current.lastTxError() ||
-              "Nie udało się zapisać kwoty tygodniowej.",
+              tRef.current("auto.weeklySaveFailed"),
           );
           return;
         }
@@ -424,7 +427,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
         writeAutoWeeklyBuy(false, cleanupOwner);
         if (statusEpochRef.current !== epoch) return;
         setPhase("error");
-        const vaultish = /vault|USDC|za mało|Za mało|vault_low/i.test(reason);
+        const vaultish = VAULTISH_REASON.test(reason);
         setMessage(
           vaultish
             ? tRef.current("auto.status.vaultLow", {
@@ -512,7 +515,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
           String(err).includes("403") ||
           String(err).includes("401")
         ) {
-          throw new Error(`Podpis odrzucony: ${err}`);
+          throw new Error(tRef.current("auto.signRejected", { error: String(err) }));
         }
         throw new Error(err);
       }
@@ -540,7 +543,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
       writeAutoWeeklyBuy(false, cleanupOwner);
       if (statusEpochRef.current !== epoch) return;
       setPhase("error");
-      const vaultish = /vault|USDC|za mało|Za mało|vault_low/i.test(reason);
+      const vaultish = VAULTISH_REASON.test(reason);
       setMessage(
         vaultish
           ? tRef.current("auto.status.vaultLow", {

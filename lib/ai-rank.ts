@@ -4,6 +4,7 @@
  * Hosted TYPESAFE must NEVER live in this bundle — only localStorage keys.
  */
 
+import { shown } from "@/lib/i18n";
 import { metricsRank } from "@/lib/metrics-rank";
 import { premiumBasisFor } from "@/lib/premium-view";
 import type { RankPrefs } from "@/lib/rank-prefs";
@@ -12,9 +13,6 @@ import type { PrestocksProduct, RankResult, RankRow } from "@/lib/universe";
 
 const XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions";
 const GROK_MODELS = ["grok-4.5", "grok-3-mini", "grok-2-latest"] as const;
-
-const JEV_PROXY_HINT =
-  "Jev niedostępny przez lokalny proxy /api/jev — uruchom npm run dev i sprawdź TYPESAFE_API_KEY.";
 
 function jevProxyUrl(): string {
   const base = (
@@ -412,17 +410,13 @@ async function callJev(
     resp = await fetchWithTimeout(url, init);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      `Jev proxy niedostępny (${msg}). Uruchom aplikację przez npm run dev.`,
-    );
+    throw new Error(shown("jev.proxyDown", { error: msg }));
   }
   if (resp.status === 404 || resp.status === 405) {
-    throw new Error(
-      "Brak proxy Jev (static Pages). Uruchom npm run dev, żeby Jev działał.",
-    );
+    throw new Error(shown("jev.noProxy"));
   }
   if (resp.status === 401) {
-    throw new Error("Nieprawidłowy TYPESAFE_API_KEY (Jev 401).");
+    throw new Error(shown("jev.badKey"));
   }
   if (!resp.ok) {
     const text = await resp.text();
@@ -460,8 +454,8 @@ function jevResultFromAnswers(
   return {
     mode: "byok_ai",
     sourceLabel: grok.skipped
-      ? "Źródło: PreStocks + AI (BYOK · Jev)"
-      : "Źródło: PreStocks + AI (BYOK · Grok+Jev)",
+      ? shown("rank.source.jev")
+      : shown("rank.source.grokJev"),
     pipeline,
     top3: scores.slice(0, 3),
     scores,
@@ -504,8 +498,7 @@ export async function runByokAiRank(opts: {
     const fallback = metricsRank(products, prefs.exclusions, prefs);
     return {
       ...fallback,
-      error:
-        "Brak TYPESAFE_API_KEY — Jev nie może wybrać top-3. Awaryjny ranking metryczny.",
+      error: shown("jev.noTypesafeKey"),
     };
   }
 
@@ -526,8 +519,8 @@ export async function runByokAiRank(opts: {
     return {
       ...fallback,
       error: isBrowserNetworkError(jevErr)
-        ? JEV_PROXY_HINT
-        : `Jev niedostępny (${jevErr}). Awaryjny ranking metryczny.`,
+        ? shown("jev.proxyHint")
+        : shown("jev.unavailable", { error: jevErr }),
       grok: {
         skipped: !!grok.skipped,
         reason: grok.reason,

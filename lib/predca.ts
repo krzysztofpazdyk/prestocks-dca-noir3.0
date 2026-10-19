@@ -20,6 +20,7 @@ import {
   RPC_READ_TIMEOUT_MS,
   withTimeout,
 } from "@/lib/rpc-timeout";
+import { shown, translate } from "@/lib/i18n";
 import { textKeepingSignature } from "@/lib/vault-follow-up";
 
 export const DEFAULT_PROGRAM_ID =
@@ -32,24 +33,20 @@ export const USDC_FACTOR = 1_000_000;
 export const MOCK_USDC_MINT =
   "3xtTBfHRf8AKEmhbFYqRoXfi9RaxxiqG9YfifjCjD4qm";
 
-export const PREDCA_ERROR_PL: Record<number, string> = {
-  6000: "Brak uprawnień (Unauthorized).",
-  6001: "Kwota musi być większa od zera.",
-  6002: "Niewystarczające saldo w vault.",
-  6003: "Nieprawidłowy budżet tygodniowy (musi być > 0).",
-  6004: "Indeks RunRecord zajęty. Spróbuj ponownie.",
-  6005: "Mint authority musi być PDA mint_auth programu.",
-  6006: "Mint nie zgadza się z kontem w instrukcji.",
-  6007: "Duplikaty mintów w top-3.",
-  6008: "Za wcześnie: odczekaj 7 dni od ostatniego zakupu (TooSoon).",
-  6009: "Brak ceny dla tokena — keeper jeszcze jej nie ustawił.",
-  6010: "Cena tokena jest nieaktualna. Keeper odświeża ceny co kilka minut — spróbuj za chwilę.",
-  6011: "Nieprawidłowa cena tokena.",
-  6012: "Nieprawidłowe parametry ceny.",
-  6013: "Zmiana ceny jest zbyt duża.",
-  6014: "Przepełnienie obliczeń ceny.",
-  6015: "Kwota tokena zaokrągliła się do zera — cena jest zbyt wysoka względem budżetu.",
-};
+const PREDCA_ERROR_CODES = [
+  6000, 6001, 6002, 6003, 6004, 6005, 6006, 6007,
+  6008, 6009, 6010, 6011, 6012, 6013, 6014, 6015,
+] as const;
+
+/** Polish program sentences. Values come from i18n so the wording stays one place. */
+export const PREDCA_ERROR_PL: Record<number, string> = Object.fromEntries(
+  PREDCA_ERROR_CODES.map((code) => [code, translate("pl", `auto.error.predca.${code}`)]),
+);
+
+function predcaErrorText(code: number): string | null {
+  if (!PREDCA_ERROR_PL[code]) return null;
+  return shown(`auto.error.predca.${code}`);
+}
 
 export function programId(): PublicKey {
   const raw =
@@ -213,7 +210,7 @@ export function getProgram(provider: AnchorProvider): Program<Predca> {
 
 export function dollarsToRaw(dollars: number): BN {
   if (!Number.isFinite(dollars) || dollars < 0) {
-    throw new Error("Nieprawidłowa kwota");
+    throw new Error(shown("tx.err.invalidAmount"));
   }
   return new BN(Math.round(dollars * USDC_FACTOR));
 }
@@ -346,6 +343,21 @@ export async function fetchVaultBalance(
   }
 }
 
+/**
+ * Fresh vault balance wins. The on-screen number is used only when that one
+ * read fails with a rate limit or a dropped connection. Any other read error
+ * is rethrown, and a missing account (fresh null, no error) stays null.
+ */
+export function resolveVaultBalanceForBuy(
+  fresh: number | null,
+  screen: number | null,
+  readError: unknown | null,
+): number | null {
+  if (readError == null) return fresh;
+  if (isRateOrNetworkError(readError) && screen != null) return screen;
+  throw readError;
+}
+
 /** Vault read that never throws. A failed read is "unknown", not zero. */
 export async function readVaultOrNull(
   connection: Connection,
@@ -383,7 +395,14 @@ export async function fetchOwnerUsdcBalance(
 export const RUN_RECORD_SCAN_CAP = 1024;
 const RUN_RECORD_BATCH = 100;
 
-export const RUN_INDEX_TAKEN_MSG = "Indeks RunRecord zajęty. Spróbuj ponownie.";
+/** Polish sentence kept for equality checks and messages saved earlier. */
+export const RUN_INDEX_TAKEN_MSG = translate("pl", "auto.error.predca.6004");
+
+/** Run-index collision copy in Polish, English, or the sentence saved earlier. */
+export function isRunIndexTakenMessage(text: string): boolean {
+  const raw = text.trim();
+  return raw === RUN_INDEX_TAKEN_MSG || raw === translate("en", "auto.error.predca.6004");
+}
 
 /** Index of the first null slot. `start` is the on-chain index of slots[0]. */
 export function firstFreeRunIndex(
@@ -489,7 +508,7 @@ export function formatTs(ts: BN | number): string {
 }
 
 export function parseAnchorError(err: unknown): string {
-  if (err == null) return "Nieznany błąd";
+  if (err == null) return shown("tx.err.unknown");
   const e = err as {
     error?: { errorCode?: { number?: number; code?: string }; errorMessage?: string };
     message?: string;
@@ -497,13 +516,14 @@ export function parseAnchorError(err: unknown): string {
   };
 
   const code = e.error?.errorCode?.number;
-  if (code != null && PREDCA_ERROR_PL[code]) {
-    return PREDCA_ERROR_PL[code];
+  if (code != null) {
+    const text = predcaErrorText(code);
+    if (text) return text;
   }
   if (e.error?.errorMessage) {
     const em = e.error.errorMessage;
     if (/RunRecord already exists|RunAlreadyExists/i.test(em)) {
-      return RUN_INDEX_TAKEN_MSG;
+      return shown("auto.error.predca.6004");
     }
     const mapped = mapCommonSolanaError(em);
     if (mapped) return mapped;
@@ -519,20 +539,25 @@ export function parseAnchorError(err: unknown): string {
   const m = msg.match(/Error Code: (\w+)\. Error Number: (\d+)/);
   if (m) {
     const num = Number(m[2]);
-    if (PREDCA_ERROR_PL[num]) return PREDCA_ERROR_PL[num];
+    const text = predcaErrorText(num);
+    if (text) return text;
     return `${m[1]} (${m[2]})`;
   }
   if (/User rejected|rejected the request/i.test(msg)) {
-    return "Transakcja odrzucona w portfelu.";
+    return shown("tx.err.walletRejected");
   }
   if (isRpcDisconnect(err, msg)) {
     const raw = (e.message ?? String(err)).trim().slice(0, 120);
-    return (
-      `Brak połączenia z RPC (sprawdź NEXT_PUBLIC_RPC_URL / Devnet).` +
-      (raw ? ` [${raw}]` : "")
-    );
+    return shown("tx.err.rpcDown", { detail: raw ? ` [${raw}]` : "" });
   }
   const trimmed = (e.message ?? String(err)).trim();
+  if (isRunIndexTakenMessage(trimmed)) return shown("auto.error.predca.6004");
+  if (
+    trimmed === translate("pl", "tx.err.buyInFlight") ||
+    trimmed === translate("en", "tx.err.buyInFlight")
+  ) {
+    return shown("tx.err.buyInFlight");
+  }
   return textKeepingSignature(trimmed);
 }
 
@@ -542,11 +567,7 @@ function mapCommonSolanaError(msg: string): string | null {
     /insufficient funds|insufficient lamports|Error: Insufficient/i.test(msg) ||
     /Transfer: insufficient/i.test(msg)
   ) {
-    return (
-      `Niewystarczające środki (mock USDC). Potrzebujesz salda mock USDC ` +
-      `(mint ${mintHint}) na Devnet w ATA portfela. ` +
-      `Utwórz ATA i zrób mint/airdrop testowych tokenów, potem Wpłać.`
-    );
+    return shown("tx.err.insufficientMock", { mint: mintHint });
   }
   if (
     /could not find account|AccountNotFound|Account does not exist|InvalidAccountData|account not found/i.test(
@@ -554,18 +575,10 @@ function mapCommonSolanaError(msg: string): string | null {
     ) ||
     /failed to get account info|AccountOwnedByWrongProgram/i.test(msg)
   ) {
-    return (
-      `Brak konta tokenowego (ATA) dla mock USDC. ` +
-      `Na Devnet potrzebujesz ATA dla mint ${mintHint} ` +
-      `(np. spl-token create-account ${mintHint} / mint tokenów do portfela). ` +
-      `Jeśli Predca nie jest zainicjalizowane — najpierw Initialize.`
-    );
+    return shown("tx.err.missingAta", { mint: mintHint });
   }
   if (/Simulation failed/i.test(msg) && /custom program error: 0x1\b/i.test(msg)) {
-    return (
-      `Niewystarczające saldo mock USDC w portfelu (mint ${mintHint}). ` +
-      `Doładuj ATA przed wpłatą.`
-    );
+    return shown("tx.err.lowWalletUsdc", { mint: mintHint });
   }
   return null;
 }

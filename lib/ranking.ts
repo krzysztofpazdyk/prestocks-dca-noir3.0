@@ -7,6 +7,8 @@
  */
 
 import { runByokAiRank } from "@/lib/ai-rank";
+import { shown, translate } from "@/lib/i18n";
+import { getLocaleSnapshot } from "@/lib/locale-store";
 import {
   filterExpired,
   filterIpoCompleted,
@@ -32,6 +34,7 @@ import {
 } from "@/lib/keys";
 import {
   fetchPrestocksProducts,
+  fillNoticeVars,
   type ProductsFetchResult,
 } from "@/lib/prestocks";
 import type { RankResult } from "@/lib/universe";
@@ -156,6 +159,16 @@ export function subscribeRankSession(onStoreChange: () => void): () => void {
   };
 }
 
+function productsNotice(result: ProductsFetchResult): string | null {
+  if (!result.errorKey) return result.errorPl;
+  const locale = getLocaleSnapshot();
+  return translate(
+    locale,
+    result.errorKey,
+    fillNoticeVars(result.errorVars, (key, vars) => translate(locale, key, vars)),
+  );
+}
+
 export async function loadInitialRanking(): Promise<{
   productsResult: ProductsFetchResult;
   rank: RankResult | null;
@@ -163,7 +176,7 @@ export async function loadInitialRanking(): Promise<{
 }> {
   const productsResult = await fetchPrestocksProducts();
   let rank: RankResult | null = null;
-  let error: string | null = productsResult.errorPl;
+  let error: string | null = productsNotice(productsResult);
 
   if (dcaApiBase()) {
     try {
@@ -198,7 +211,7 @@ export async function runRankingNow(
     prefs.deadlinesUnimportant,
   );
   if (products.length < 3) {
-    throw new Error("Za mało produktów PreStocks do rankingu (<3).");
+    throw new Error(shown("msg.tooFewProducts"));
   }
 
   const byok = hasByokTypesafe();
@@ -248,7 +261,9 @@ export async function runRankingNow(
         saveRankSession(byokFallback);
         return byokFallback;
       }
-      const reason = `Hosted Jev niedostępny (${e instanceof Error ? e.message : e}). Awaryjny ranking metryczny.`;
+      const reason = shown("rank.err.hostedDown", {
+        error: e instanceof Error ? e.message : String(e),
+      });
       const fallback = emergencyFromProducts(
         products,
         reason,
@@ -266,8 +281,8 @@ export async function runRankingNow(
   }
 
   const reason = byok
-    ? "Adres API nie jest skonfigurowany i brak same-origin /api/jev — Jev nie może wystartować. Awaryjny ranking metryczny."
-    : "Wymagany klucz TypeSafe (BYOK) do Jev — brak darmowego hosted Jev. Awaryjny ranking metryczny.";
+    ? shown("rank.err.noApiNoProxy")
+    : shown("rank.err.byokRequired");
   const fallback = emergencyFromProducts(
     products,
     reason,
@@ -295,7 +310,7 @@ export function activeModeLabel(
   hasByok: boolean,
 ): string {
   if (rank?.sourceLabel) return rank.sourceLabel;
-  if (hasByok) return "Źródło: PreStocks + AI (BYOK) — czekam na ranking";
+  if (hasByok) return shown("rank.source.waiting");
   // Without client TypeSafe BYOK we never call hosted Jev — do not claim hosted.
-  return "Źródło: PreStocks — brak TypeSafe BYOK (wymagany do Jev)";
+  return shown("rank.source.noByok");
 }

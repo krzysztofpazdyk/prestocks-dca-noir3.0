@@ -64,7 +64,11 @@ import {
   showsSpacexDiscount,
   type PremiumTone,
 } from "@/lib/premium-view";
-import { fetchPrestocksProducts, PRESTOCKS_SNAPSHOT_DATE } from "@/lib/prestocks";
+import {
+  fetchPrestocksProducts,
+  fillNoticeVars,
+  PRESTOCKS_SNAPSHOT_DATE,
+} from "@/lib/prestocks";
 import {
   isFlatFallback,
   parseRankSession,
@@ -324,6 +328,13 @@ export function OverviewView() {
       if (productsResult.dataSource === "snapshot") {
         notes.push(
           t("prestocks.snapshotDated", { date: PRESTOCKS_SNAPSHOT_DATE }),
+        );
+      } else if (productsResult.errorKey) {
+        notes.push(
+          t(
+            productsResult.errorKey,
+            fillNoticeVars(productsResult.errorVars, t),
+          ),
         );
       } else if (productsResult.errorPl) {
         notes.push(productsResult.errorPl);

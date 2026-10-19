@@ -26,7 +26,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { TxNotice } from "@/components/TxNotice";
-import { useI18n } from "@/lib/i18n";
+import { translate, useI18n } from "@/lib/i18n";
 import { getLocaleSnapshot } from "@/lib/locale-store";
 import { PRIVY_SOLANA_CHAIN, privyAppId } from "@/lib/privy-devnet";
 import {
@@ -179,7 +179,7 @@ export function PrivyWalletBridge({ children }: { children: ReactNode }) {
       address: current.address,
       signMessage: async (message) => {
         const wallet = embeddedRef.current;
-        if (!wallet) throw new Error("Brak portfela Privy.");
+        if (!wallet) throw new Error(translate(getLocaleSnapshot(), "privy.missingWallet"));
         const { signature } = await signMessageRef.current({
           message,
           wallet,
@@ -188,7 +188,7 @@ export function PrivyWalletBridge({ children }: { children: ReactNode }) {
       },
       signTransactionBytes: async (serialized) => {
         const wallet = embeddedRef.current;
-        if (!wallet) throw new Error("Brak portfela Privy.");
+        if (!wallet) throw new Error(translate(getLocaleSnapshot(), "privy.missingWallet"));
         // Success copy only. showWalletUIs stays untouched so Approve remains.
         // Privy resolves this promise when the user closes the success screen.
         beginPrivySign();
@@ -205,7 +205,7 @@ export function PrivyWalletBridge({ children }: { children: ReactNode }) {
             !(signedTransaction instanceof Uint8Array) ||
             signedTransaction.byteLength === 0
           ) {
-            throw new Error("Privy nie zwrócił podpisanej transakcji.");
+            throw new Error(translate(getLocaleSnapshot(), "privy.noSignedTx"));
           }
           return signedTransaction;
         } finally {
@@ -230,7 +230,7 @@ export function PrivyWalletBridge({ children }: { children: ReactNode }) {
     async function requireDelegate() {
       const delegate = getPrivyWalletDelegate();
       if (!delegate || delegate.address !== publicKey.toBase58()) {
-        throw new Error("Portfel Privy nie jest gotowy do podpisu.");
+        throw new Error(translate(getLocaleSnapshot(), "privy.notReadyToSign"));
       }
       return delegate;
     }
