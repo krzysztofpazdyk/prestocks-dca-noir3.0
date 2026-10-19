@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useKeeperSignMessage } from "@/components/PrivyWalletBridge";
+import {
+  PrivySignWaitNotice,
+  useKeeperSignMessage,
+} from "@/components/PrivyWalletBridge";
 import {
   companyDataClientSnapshot,
   companyDataNeedsRefresh,
@@ -672,6 +675,7 @@ export function SettingsView() {
             {t("settings.connectForBudget")}
           </p>
         ) : null}
+        <PrivySignWaitNotice />
         {budgetTxNotice(predca.pendingMsg, "pending")}
         {budgetTxNotice(predca.error, "error")}
         {budgetTxNotice(predca.okMsg, "ok")}
