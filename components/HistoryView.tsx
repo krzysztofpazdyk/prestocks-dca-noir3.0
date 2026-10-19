@@ -1,7 +1,7 @@
 "use client";
 
 import { useWallet } from "@solana/wallet-adapter-react";
-import { nameByMint } from "@/lib/devnet-mock-mints";
+import { mintLabel } from "@/lib/mint-label";
 import { usePredca } from "@/lib/hooks/usePredca";
 import { TxNotice } from "@/components/TxNotice";
 import {
@@ -9,19 +9,12 @@ import {
   formatTs,
   formatUsd,
   rawToDollars,
-  shortPk,
   type RunRecordData,
 } from "@/lib/predca";
 import { fmtSignedPnl, fmtUsdAmount } from "@/lib/format-usd";
 import { runPnl } from "@/lib/position-value";
 import { historyBudgetUsd, historyLegUsd, historyView } from "@/lib/history-view";
 import { useI18n } from "@/lib/i18n";
-
-function mintLabel(mint: RunRecordData["mints"][number]): string {
-  const named = nameByMint(mint);
-  if (named) return named;
-  return shortPk(mint, 6);
-}
 
 function runBudgetUsd(
   run: RunRecordData,
@@ -113,7 +106,7 @@ export function HistoryView() {
             );
             const priceState = fill?.priceState ?? "unknown";
             const budget = runBudgetUsd(run, fill?.slots, priceState);
-            const names = run.mints.map((m) => mintLabel(m));
+            const names = run.mints.map((m) => mintLabel(m, 6));
             const usdcEach = run.mints.map((_, i) =>
               historyLegUsd(
                 priceState,
@@ -186,7 +179,7 @@ export function HistoryView() {
                       key={`${run.runIndex.toString()}-${i}`}
                       className="rounded border border-[#1e2633] bg-[#0c0e12] px-2 py-1.5 text-xs"
                     >
-                      <span className="text-[#c5cedb]">{mintLabel(m)}</span>
+                      <span className="text-[#c5cedb]">{mintLabel(m, 6)}</span>
                       <span className="mono-num ml-2 text-[#8b95a8]">
                         {usdcEach[i] == null
                           ? t("runPrice.unknown")

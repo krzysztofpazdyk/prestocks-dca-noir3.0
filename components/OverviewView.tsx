@@ -54,8 +54,8 @@ import {
   formatUsd,
   rawToDollars,
   rpcHost,
-  shortPk,
 } from "@/lib/predca";
+import { mintLabel } from "@/lib/mint-label";
 import {
   formatPremiumPct,
   livePremiumPct,
@@ -1148,9 +1148,10 @@ export function OverviewView() {
                 return (
                 <li
                   key={i}
+                  title={t("predca.runMintAddress", { mint: m.toBase58() })}
                   className="rounded border border-[#1e2633] bg-[#0c0e12] px-2 py-1.5 mono-num"
                 >
-                  {shortPk(m)} · {tokenText}
+                  {mintLabel(m)} · {tokenText}
                   {slot ? ` · $${formatUsd(slot.price)}` : ""}
                 </li>
                 );

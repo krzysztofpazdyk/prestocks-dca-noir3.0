@@ -123,9 +123,9 @@ import type { Holding } from "@/lib/mock-data";
 import {
   allMockMints,
   holdingColor,
-  nameByMint,
   resolveTop3Mints,
 } from "@/lib/devnet-mock-mints";
+import { mintLabel } from "@/lib/mint-label";
 import {
   BN,
   MOCK_USDC_MINT,
@@ -216,12 +216,7 @@ function runToLastPurchase(
   dec: DecodedRunPrice | null,
 ): OnChainLastPurchase {
   const tokenAmounts = run.amounts.map((a) => rawToDollars(a));
-  const tokens = run.mints.map((m) => {
-    const named = nameByMint(m);
-    if (named) return named;
-    const s = typeof m === "string" ? m : m.toBase58();
-    return s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
-  });
+  const tokens = run.mints.map((m) => mintLabel(m));
   const ts =
     typeof run.ts === "object" && run.ts !== null && "toNumber" in run.ts
       ? (run.ts as BN).toNumber()
