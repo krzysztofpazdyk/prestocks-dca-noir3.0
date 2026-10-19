@@ -30,7 +30,12 @@ test("Privy success copy follows the language and keeps the Approve screen", () 
   assert.equal("showWalletUIs" in pl, false);
   assert.equal("showWalletUIs" in en, false);
 
-  assert.equal(pl.successHeader, "Podpisano. Kliknij Zamknij, aby wysłać.");
+  assert.equal(pl.successHeader, "Podpisano. Kliknij Close, aby wysłać.");
+  assert.equal(
+    pl.successDescription,
+    "To jeszcze nie jest wysłanie. Środki nie zostały ruszone.",
+  );
+  assert.doesNotMatch(pl.successDescription, /Zamknij/);
   assert.match(pl.successDescription, /nie jest wysłanie/);
   assert.match(pl.successDescription, /Środki nie zostały ruszone/);
   assert.equal(en.successHeader, "Signed. Click Close to send.");

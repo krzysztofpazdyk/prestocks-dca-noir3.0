@@ -48,9 +48,9 @@ const pl: Dict = {
   "privy.busy": "Privy…",
   "privy.signWait":
     "Zatwierdź i zamknij okno Privy, żeby wysłać transakcję",
-  "privy.signSuccessHeader": "Podpisano. Kliknij Zamknij, aby wysłać.",
+  "privy.signSuccessHeader": "Podpisano. Kliknij Close, aby wysłać.",
   "privy.signSuccessDescription":
-    "To jeszcze nie jest wysłanie. Przycisk na dole to Close. Środki nie zostały ruszone.",
+    "To jeszcze nie jest wysłanie. Środki nie zostały ruszone.",
   "privy.blockhashExpired":
     "Transakcja nie została wysłana. Środki nie zostały ruszone. Spróbuj ponownie i szybciej zamknij okno Privy.",
 
@@ -185,6 +185,18 @@ const pl: Dict = {
     "Konta tokenów zostały utworzone, ale zakup nie przeszedł. Środki z vaulta nie zostały ruszone.",
   "buy.ataUnconfirmedNoBuy":
     "Konta tokenów nie zostały potwierdzone. Zakup nie został wysłany. Środki z vaulta nie zostały ruszone.",
+  "tx.ok.initDeposit": "Zainicjalizowano Predca + wpłacono {amount} USDC do vault.",
+  "tx.ok.deposit": "Wpłacono {amount} USDC do vault.",
+  "tx.ok.withdraw": "Wypłacono {amount} USDC z vault.",
+  "tx.ok.budget": "Zapisano budżet tygodniowy on-chain.",
+  "tx.ok.buyConfirmed": "Zakup on-chain potwierdzony: ${amount} z vault.",
+  "tx.ok.buyConfirmedShort": "Zakup on-chain potwierdzony.",
+  "tx.ok.simulateBuy":
+    "Zakup on-chain (simulate_buy_v2): ${amount} z vault → ⅓ na {names}.{preview}",
+  "tx.buyPreviewLeg": "≈ {tokens} {name} po ${price}",
+  "tx.err.noBuyIx": "Brak instrukcji zakupu.",
+  "tx.err.rejected": "Transakcja odrzucona przez Devnet. {signature}",
+  "tx.err.rejectedShort": "Transakcja odrzucona przez Devnet.",
   "msg.purchaseFail":
     "Zakup nieudany — szczegóły w sekcji Predca powyżej (czerwony komunikat).",
   "msg.purchasePending":
@@ -582,6 +594,18 @@ const en: Dict = {
     "Token accounts were created, but the purchase did not go through. Vault funds were not touched.",
   "buy.ataUnconfirmedNoBuy":
     "Token accounts were not confirmed. The purchase was not sent. Vault funds were not touched.",
+  "tx.ok.initDeposit": "Initialized Predca and deposited {amount} USDC into the vault.",
+  "tx.ok.deposit": "Deposited {amount} USDC into the vault.",
+  "tx.ok.withdraw": "Withdrew {amount} USDC from the vault.",
+  "tx.ok.budget": "Saved the weekly budget on-chain.",
+  "tx.ok.buyConfirmed": "On-chain purchase confirmed: ${amount} from the vault.",
+  "tx.ok.buyConfirmedShort": "On-chain purchase confirmed.",
+  "tx.ok.simulateBuy":
+    "On-chain purchase (simulate_buy_v2): ${amount} from the vault → ⅓ across {names}.{preview}",
+  "tx.buyPreviewLeg": "≈ {tokens} {name} at ${price}",
+  "tx.err.noBuyIx": "No purchase instruction.",
+  "tx.err.rejected": "Transaction rejected by Devnet. {signature}",
+  "tx.err.rejectedShort": "Transaction rejected by Devnet.",
   "msg.purchaseFail":
     "Purchase failed — see details in the Predca section above (red message).",
   "msg.purchasePending":
@@ -837,6 +861,21 @@ export function translate(
   const dict = dictionaries[locale] ?? dictionaries.pl;
   const raw = dict[key] ?? dictionaries.pl[key] ?? dictionaries.en[key] ?? key;
   return interpolate(raw, vars);
+}
+
+/** Amounts in transaction toasts. Digits follow the active language. */
+export function formatCount(
+  locale: Locale,
+  amount: number,
+  opts?: { min?: number; max?: number },
+): string {
+  if (!Number.isFinite(amount)) return "";
+  const tag = locale === "en" ? "en-US" : "pl-PL";
+  const options: Intl.NumberFormatOptions = {
+    maximumFractionDigits: opts?.max ?? 6,
+  };
+  if (opts?.min != null) options.minimumFractionDigits = opts.min;
+  return amount.toLocaleString(tag, options);
 }
 
 type I18nContextValue = {

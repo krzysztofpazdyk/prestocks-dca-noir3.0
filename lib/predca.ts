@@ -346,6 +346,21 @@ export async function fetchVaultBalance(
   }
 }
 
+/**
+ * Fresh vault balance wins. The on-screen number is used only when that one
+ * read fails with a rate limit or a dropped connection. Any other read error
+ * is rethrown, and a missing account (fresh null, no error) stays null.
+ */
+export function resolveVaultBalanceForBuy(
+  fresh: number | null,
+  screen: number | null,
+  readError: unknown | null,
+): number | null {
+  if (readError == null) return fresh;
+  if (isRateOrNetworkError(readError) && screen != null) return screen;
+  throw readError;
+}
+
 /** Vault read that never throws. A failed read is "unknown", not zero. */
 export async function readVaultOrNull(
   connection: Connection,

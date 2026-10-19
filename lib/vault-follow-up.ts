@@ -130,8 +130,15 @@ export function isUnconfirmedTimeout(err: unknown): { signature: string } | null
   return { signature };
 }
 
-/** confirmLanded throws this when the signature status has `err`. */
+/**
+ * On-chain rejection. New errors carry `onChainReject` / `SignatureFailedError`.
+ * The Polish sentence remains for messages already saved in an earlier session.
+ */
 export function isOnChainSignatureReject(err: unknown): boolean {
+  if (err != null && typeof err === "object") {
+    if ((err as { onChainReject?: unknown }).onChainReject === true) return true;
+    if (errorName(err) === "SignatureFailedError") return true;
+  }
   return /odrzucona przez Devnet/i.test(errorMessage(err));
 }
 

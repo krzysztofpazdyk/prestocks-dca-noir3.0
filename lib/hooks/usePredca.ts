@@ -95,9 +95,10 @@ import {
   missingAtaIndexes,
   ownerAtaAddress,
   transactionFromInstructions,
+  withOneNetworkRetry,
 } from "@/lib/buy-ata";
-import { getLocaleSnapshot } from "@/lib/locale-store";
-import { translate } from "@/lib/i18n";
+import { getLocaleSnapshot, type Locale } from "@/lib/locale-store";
+import { formatCount, translate } from "@/lib/i18n";
 import { privySendFailureMessage } from "@/lib/privy-sign-ui";
 import { fetchJupPrices, emptyJupPrices, type JupPrices } from "@/lib/jup-prices";
 import {
@@ -143,6 +144,7 @@ import {
   formatTs,
   getProgram,
   isRunAlreadyExists,
+  resolveVaultBalanceForBuy,
   ownerUsdcAta,
   parseAnchorError,
   priceFeedPda,
@@ -292,21 +294,32 @@ function priorSessionOk(rec: PendingTxRecord): string {
   return `Transakcja z poprzedniej sesji weszła: ${pendingKindLabelPl(rec.kind)} ${amount}${short}`;
 }
 
+function txAmount(locale: Locale, amount: number, digits?: number): string {
+  return formatCount(
+    locale,
+    amount,
+    digits == null ? undefined : { min: digits, max: digits },
+  );
+}
+
 function successForRecord(rec: PendingTxRecord): string {
+  const locale = getLocaleSnapshot();
   const amt = rec.amountUsd ?? 0;
   switch (rec.kind) {
     case "init_deposit":
-      return `Zainicjalizowano Predca + wpłacono ${amt} USDC do vault.`;
+      return translate(locale, "tx.ok.initDeposit", { amount: txAmount(locale, amt) });
     case "deposit":
-      return `Wpłacono ${amt} USDC do vault.`;
+      return translate(locale, "tx.ok.deposit", { amount: txAmount(locale, amt) });
     case "withdraw":
-      return `Wypłacono ${amt} USDC z vault.`;
+      return translate(locale, "tx.ok.withdraw", { amount: txAmount(locale, amt) });
     case "budget":
-      return "Zapisano budżet tygodniowy on-chain.";
+      return translate(locale, "tx.ok.budget");
     case "buy":
       return rec.amountUsd != null
-        ? `Zakup on-chain potwierdzony: $${rec.amountUsd.toFixed(2)} z vault.`
-        : "Zakup on-chain potwierdzony.";
+        ? translate(locale, "tx.ok.buyConfirmed", {
+            amount: txAmount(locale, rec.amountUsd, 2),
+          })
+        : translate(locale, "tx.ok.buyConfirmedShort");
   }
 }
 
@@ -1395,7 +1408,7 @@ function usePredcaImpl() {
           reportError(
             e instanceof Error
               ? e.message
-              : "Transakcja odrzucona przez Devnet.",
+              : translate(getLocaleSnapshot(), "tx.err.rejectedShort"),
           );
         }
         return null;
@@ -1595,6 +1608,7 @@ function usePredcaImpl() {
         );
         return null;
       }
+      const initLocale = getLocaleSnapshot();
       return withTx(
         () =>
           withOneStaleBlockhashRetry(isPrivy, async () => {
@@ -1612,7 +1626,9 @@ function usePredcaImpl() {
             const tx = new Transaction().add(initIx, depositIx);
             return provider.sendAndConfirm(tx);
           }),
-        `Zainicjalizowano Predca + wpłacono ${amountUsd} USDC do vault.`,
+        translate(initLocale, "tx.ok.initDeposit", {
+          amount: txAmount(initLocale, amountUsd),
+        }),
         {
           requireVaultIncrease: isPrivy,
           kind: "init_deposit",
@@ -1621,6 +1637,7 @@ function usePredcaImpl() {
       );
     }
 
+    const depositLocale = getLocaleSnapshot();
     return withTx(
       () =>
         withOneStaleBlockhashRetry(isPrivy, () =>
@@ -1632,7 +1649,9 @@ function usePredcaImpl() {
             })
             .rpc(),
         ),
-      `Wpłacono ${amountUsd} USDC do vault.`,
+      translate(depositLocale, "tx.ok.deposit", {
+        amount: txAmount(depositLocale, amountUsd),
+      }),
       { requireVaultIncrease: isPrivy, kind: "deposit", amountUsd },
     );
   }
@@ -1662,6 +1681,7 @@ function usePredcaImpl() {
       return null;
     }
     const ownerUsdcAtaPk = ownerUsdcAta(owner, mint);
+    const withdrawLocale = getLocaleSnapshot();
     return withTx(
       () =>
         withOneStaleBlockhashRetry(isPrivy, () =>
@@ -1673,7 +1693,9 @@ function usePredcaImpl() {
             })
             .rpc(),
         ),
-      `Wypłacono ${amountUsd} USDC z vault.`,
+      translate(withdrawLocale, "tx.ok.withdraw", {
+        amount: txAmount(withdrawLocale, amountUsd),
+      }),
       { kind: "withdraw", amountUsd },
     );
   }
@@ -1705,7 +1727,7 @@ function usePredcaImpl() {
         withOneStaleBlockhashRetry(isPrivy, () =>
           program.methods.setWeeklyBudget(raw).rpc(),
         ),
-      "Zapisano budżet tygodniowy on-chain.",
+      translate(getLocaleSnapshot(), "tx.ok.budget"),
       { kind: "budget", amountUsd: weeklyBudgetUsd },
     );
   }
@@ -1796,10 +1818,15 @@ function usePredcaImpl() {
       const amountEach = Math.floor((budget * 1e6) / 3) / 1e6;
       const totalDebit = amountEach * 3;
       const usdcEachRaw = BigInt(Math.floor(budget * 1e6 / 3));
-      const vaultNow =
-        vaultUsdc != null
-          ? vaultUsdc
-          : await fetchVaultBalance(connection, owner);
+      // One fresh vault read. The number on screen is only a fallback.
+      let freshVault: number | null = null;
+      let vaultReadError: unknown = null;
+      try {
+        freshVault = await fetchVaultBalance(connection, owner);
+      } catch (e) {
+        vaultReadError = e;
+      }
+      const vaultNow = resolveVaultBalanceForBuy(freshVault, vaultUsdc, vaultReadError);
       if (vaultNow == null || vaultNow < totalDebit) {
         reportError(
           `Za mało USDC w vault (on-chain): ${(vaultNow ?? 0).toFixed(2)} < ${totalDebit.toFixed(2)}.`,
@@ -1849,7 +1876,9 @@ function usePredcaImpl() {
         // Without one it threw after the blockhash expired, and that error
         // was reported as a finished purchase even though the buy never ran.
         const atas = mints.map((mintKey) => ownerAtaAddress(owner, mintKey));
-        const infos = await connection.getMultipleAccountsInfo(atas);
+        const infos = await withOneNetworkRetry(() =>
+          connection.getMultipleAccountsInfo(atas),
+        );
         const missing = missingAtaIndexes(infos.map((info) => info != null));
         const ataIxs = ataCreateInstructions(owner, mints, missing);
         const locale = getLocaleSnapshot();
@@ -1874,23 +1903,35 @@ function usePredcaImpl() {
             skipPreflight: false,
             preflightCommitment: "confirmed",
           });
-          await confirmSignatureByPolling(async (signature) => {
-            const { value } = await connection.getSignatureStatuses([signature]);
-            const row = value[0];
-            if (!row) return [null];
-            return [
-              {
-                err: row.err,
-                confirmationStatus: row.confirmationStatus ?? null,
+          await confirmSignatureByPolling(
+            async (signature) => {
+              const { value } = await connection.getSignatureStatuses([signature]);
+              const row = value[0];
+              if (!row) return [null];
+              return [
+                {
+                  err: row.err,
+                  confirmationStatus: row.confirmationStatus ?? null,
+                },
+              ];
+            },
+            sig,
+            {
+              readLogs: async (signature) => {
+                const landed = await connection.getTransaction(signature, {
+                  maxSupportedTransactionVersion: 0,
+                  commitment: "confirmed",
+                });
+                return landed?.meta?.logMessages ?? null;
               },
-            ];
-          }, sig);
+            },
+          );
           return sig;
         };
 
         if (plan === "combined") {
           if (!buyIx) {
-            throw new Error("Brak instrukcji zakupu.");
+            throw new Error(translate(locale, "tx.err.noBuyIx"));
           }
           return sendAndConfirm(
             assembleBuyTransaction(ataIxs, buyIx, owner, blockhash),
@@ -1947,6 +1988,7 @@ function usePredcaImpl() {
         }
       };
 
+      const buyLocale = getLocaleSnapshot();
       let preview = "";
       try {
         const feeds = await fetchPriceFeedsCached(connection, mints);
@@ -1959,12 +2001,13 @@ function usePredcaImpl() {
             mintedBaseUnits(usdcEachRaw, feed.price, feed.priceDecimals),
           );
           if (priceUsd == null || !(tokens > 0)) continue;
-          const tokenText = tokens.toLocaleString("pl-PL", { maximumFractionDigits: 6 });
-          const pxText = priceUsd.toLocaleString("pl-PL", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          });
-          bits.push(`≈ ${tokenText} ${names[i]} po $${pxText}`);
+          bits.push(
+            translate(buyLocale, "tx.buyPreviewLeg", {
+              tokens: formatCount(buyLocale, tokens, { max: 6 }),
+              name: names[i] ?? "",
+              price: formatCount(buyLocale, priceUsd, { min: 2, max: 2 }),
+            }),
+          );
         }
         if (bits.length > 0) preview = ` ${bits.join(" · ")}`;
       } catch {
@@ -1989,7 +2032,11 @@ function usePredcaImpl() {
             throw e2;
           }
         }
-      }, `Zakup on-chain (simulate_buy_v2): $${totalDebit.toFixed(2)} z vault → ⅓ na ${names.join(" · ")}.${preview}`, {
+      }, translate(buyLocale, "tx.ok.simulateBuy", {
+        amount: txAmount(buyLocale, totalDebit, 2),
+        names: names.join(" · "),
+        preview,
+      }), {
         kind: "buy",
         amountUsd: totalDebit,
       });
