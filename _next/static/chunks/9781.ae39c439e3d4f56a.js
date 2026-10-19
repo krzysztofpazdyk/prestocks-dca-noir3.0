@@ -368,7 +368,7 @@
       </wui-flex>
     </button>`}textTemplate(){let e=ea[this.size];return this.text?(0,i.qy)`<wui-text color="primary" variant=${e}>${this.text}</wui-text>`:null}imageTemplate(){if(this.imageSrc)return(0,i.qy)`<wui-image src=${this.imageSrc} alt="select visual"></wui-image>`;let e=er[this.size];return(0,i.qy)` <wui-flex class="left-icon-container">
       <wui-icon size=${e} name="networkPlaceholder"></wui-icon>
-    </wui-flex>`}};en.styles=[F.W5,F.fD,eo],ei([(0,a.MZ)()],en.prototype,"imageSrc",void 0),ei([(0,a.MZ)()],en.prototype,"text",void 0),ei([(0,a.MZ)()],en.prototype,"size",void 0),ei([(0,a.MZ)()],en.prototype,"type",void 0),ei([(0,a.MZ)({type:Boolean})],en.prototype,"disabled",void 0),en=ei([(0,B.E)("wui-select")],en),o(60851),o(84457);var es=o(32665);let ec=(0,z.AH)`
+    </wui-flex>`}};en.styles=[F.W5,F.fD,eo],ei([(0,a.MZ)()],en.prototype,"imageSrc",void 0),ei([(0,a.MZ)()],en.prototype,"text",void 0),ei([(0,a.MZ)()],en.prototype,"size",void 0),ei([(0,a.MZ)()],en.prototype,"type",void 0),ei([(0,a.MZ)({type:Boolean})],en.prototype,"disabled",void 0),en=ei([(0,B.E)("wui-select")],en),o(83232),o(84457);var es=o(32665);let ec=(0,z.AH)`
   :host {
     height: 60px;
   }

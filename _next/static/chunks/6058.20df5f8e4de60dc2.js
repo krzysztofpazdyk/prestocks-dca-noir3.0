@@ -536,67 +536,7 @@
   }
 `;var c=function(e,t,i,r){var o,a=arguments.length,l=a<3?t:null===r?r=Object.getOwnPropertyDescriptor(t,i):r;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)l=Reflect.decorate(e,t,i,r);else for(var n=e.length-1;n>=0;n--)(o=e[n])&&(l=(a<3?o(l):a>3?o(t,i,l):o(t,i))||l);return a>3&&l&&Object.defineProperty(t,i,l),l};let d=class extends r.WF{constructor(){super(...arguments),this.icon="copy",this.size="md",this.padding="1",this.color="default"}render(){return this.dataset.padding=this.padding,this.dataset.color=this.color,(0,r.qy)`
       <wui-icon size=${(0,a.J)(this.size)} name=${this.icon} color="inherit"></wui-icon>
-    `}};d.styles=[l.W5,l.fD,h],c([(0,o.MZ)()],d.prototype,"icon",void 0),c([(0,o.MZ)()],d.prototype,"size",void 0),c([(0,o.MZ)()],d.prototype,"padding",void 0),c([(0,o.MZ)()],d.prototype,"color",void 0),d=c([(0,n.E)("wui-icon-box")],d)},60851:(e,t,i)=>{var r=i(56329),o=i(34892);i(48672),i(79077);var a=i(54794),l=i(43845),n=i(45594);let s=(0,n.AH)`
-  :host {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: ${({spacing:e})=>e[1]};
-    text-transform: uppercase;
-  }
-
-  :host([data-variant='accent']) {
-    background-color: ${({tokens:e})=>e.core.foregroundAccent010};
-    color: ${({tokens:e})=>e.core.textAccentPrimary};
-  }
-
-  :host([data-variant='info']) {
-    background-color: ${({tokens:e})=>e.theme.foregroundSecondary};
-    color: ${({tokens:e})=>e.theme.textSecondary};
-  }
-
-  :host([data-variant='success']) {
-    background-color: ${({tokens:e})=>e.core.backgroundSuccess};
-    color: ${({tokens:e})=>e.core.textSuccess};
-  }
-
-  :host([data-variant='warning']) {
-    background-color: ${({tokens:e})=>e.core.backgroundWarning};
-    color: ${({tokens:e})=>e.core.textWarning};
-  }
-
-  :host([data-variant='error']) {
-    background-color: ${({tokens:e})=>e.core.backgroundError};
-    color: ${({tokens:e})=>e.core.textError};
-  }
-
-  :host([data-variant='certified']) {
-    background-color: ${({tokens:e})=>e.theme.foregroundSecondary};
-    color: ${({tokens:e})=>e.theme.textSecondary};
-  }
-
-  :host([data-size='md']) {
-    height: 30px;
-    padding: 0 ${({spacing:e})=>e[2]};
-    border-radius: ${({borderRadius:e})=>e[2]};
-  }
-
-  :host([data-size='sm']) {
-    height: 20px;
-    padding: 0 ${({spacing:e})=>e[1]};
-    border-radius: ${({borderRadius:e})=>e[1]};
-  }
-`;var h=function(e,t,i,r){var o,a=arguments.length,l=a<3?t:null===r?r=Object.getOwnPropertyDescriptor(t,i):r;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)l=Reflect.decorate(e,t,i,r);else for(var n=e.length-1;n>=0;n--)(o=e[n])&&(l=(a<3?o(l):a>3?o(t,i,l):o(t,i))||l);return a>3&&l&&Object.defineProperty(t,i,l),l};let c=class extends r.WF{constructor(){super(...arguments),this.variant="accent",this.size="md",this.icon=void 0}render(){this.dataset.variant=this.variant,this.dataset.size=this.size;let e="md"===this.size?"md-medium":"sm-medium",t="md"===this.size?"md":"sm";return(0,r.qy)`
-      ${this.icon?(0,r.qy)`<wui-icon size=${t} name=${this.icon}></wui-icon>`:null}
-      <wui-text
-        display="inline"
-        data-variant=${this.variant}
-        variant=${e}
-        color="inherit"
-      >
-        <slot></slot>
-      </wui-text>
-    `}};c.styles=[a.W5,s],h([(0,o.MZ)()],c.prototype,"variant",void 0),h([(0,o.MZ)()],c.prototype,"size",void 0),h([(0,o.MZ)()],c.prototype,"icon",void 0),c=h([(0,l.E)("wui-tag")],c)},66973:(e,t,i)=>{var r=i(56329);i(48672),i(79077),i(7324);var o=i(54794),a=i(43845),l=i(45594);let n=(0,l.AH)`
+    `}};d.styles=[l.W5,l.fD,h],c([(0,o.MZ)()],d.prototype,"icon",void 0),c([(0,o.MZ)()],d.prototype,"size",void 0),c([(0,o.MZ)()],d.prototype,"padding",void 0),c([(0,o.MZ)()],d.prototype,"color",void 0),d=c([(0,n.E)("wui-icon-box")],d)},66973:(e,t,i)=>{var r=i(56329);i(48672),i(79077),i(7324);var o=i(54794),a=i(43845),l=i(45594);let n=(0,l.AH)`
   .reown-logo {
     height: 24px;
   }
@@ -656,7 +596,7 @@
             name=${(0,a.J)(t)}
           ></wui-wallet-image>
         `)}
-    ${e?[...Array(4-this.walletImages.length)].map(()=>(0,r.qy)` <wui-wallet-image size="sm" name=""></wui-wallet-image>`):null} `}};d.styles=[l.W5,h],c([(0,o.MZ)({type:Array})],d.prototype,"walletImages",void 0),d=c([(0,n.E)("wui-all-wallets-image")],d),i(60851);let p=(0,s.AH)`
+    ${e?[...Array(4-this.walletImages.length)].map(()=>(0,r.qy)` <wui-wallet-image size="sm" name=""></wui-wallet-image>`):null} `}};d.styles=[l.W5,h],c([(0,o.MZ)({type:Array})],d.prototype,"walletImages",void 0),d=c([(0,n.E)("wui-all-wallets-image")],d),i(83232);let p=(0,s.AH)`
   :host {
     width: 100%;
   }
@@ -1019,7 +959,67 @@
       display: ${this.display};
       --local-align: ${this.align};
       --local-color: ${"inherit"===this.color?"inherit":g[this.color??"primary"]};
-      `,(0,r.qy)`<slot class=${n(e)}></slot>`}};f.styles=[h.W5,d],p([(0,o.MZ)()],f.prototype,"variant",void 0),p([(0,o.MZ)()],f.prototype,"color",void 0),p([(0,o.MZ)()],f.prototype,"align",void 0),p([(0,o.MZ)()],f.prototype,"lineClamp",void 0),p([(0,o.MZ)()],f.prototype,"display",void 0),f=p([(0,c.E)("wui-text")],f)},83447:(e,t,i)=>{var r=i(56329),o=i(34892),a=i(45594),l=i(54794),n=i(43845);let s=(0,r.AH)`
+      `,(0,r.qy)`<slot class=${n(e)}></slot>`}};f.styles=[h.W5,d],p([(0,o.MZ)()],f.prototype,"variant",void 0),p([(0,o.MZ)()],f.prototype,"color",void 0),p([(0,o.MZ)()],f.prototype,"align",void 0),p([(0,o.MZ)()],f.prototype,"lineClamp",void 0),p([(0,o.MZ)()],f.prototype,"display",void 0),f=p([(0,c.E)("wui-text")],f)},83232:(e,t,i)=>{var r=i(56329),o=i(34892);i(48672),i(79077);var a=i(54794),l=i(43845),n=i(45594);let s=(0,n.AH)`
+  :host {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: ${({spacing:e})=>e[1]};
+    text-transform: uppercase;
+  }
+
+  :host([data-variant='accent']) {
+    background-color: ${({tokens:e})=>e.core.foregroundAccent010};
+    color: ${({tokens:e})=>e.core.textAccentPrimary};
+  }
+
+  :host([data-variant='info']) {
+    background-color: ${({tokens:e})=>e.theme.foregroundSecondary};
+    color: ${({tokens:e})=>e.theme.textSecondary};
+  }
+
+  :host([data-variant='success']) {
+    background-color: ${({tokens:e})=>e.core.backgroundSuccess};
+    color: ${({tokens:e})=>e.core.textSuccess};
+  }
+
+  :host([data-variant='warning']) {
+    background-color: ${({tokens:e})=>e.core.backgroundWarning};
+    color: ${({tokens:e})=>e.core.textWarning};
+  }
+
+  :host([data-variant='error']) {
+    background-color: ${({tokens:e})=>e.core.backgroundError};
+    color: ${({tokens:e})=>e.core.textError};
+  }
+
+  :host([data-variant='certified']) {
+    background-color: ${({tokens:e})=>e.theme.foregroundSecondary};
+    color: ${({tokens:e})=>e.theme.textSecondary};
+  }
+
+  :host([data-size='md']) {
+    height: 30px;
+    padding: 0 ${({spacing:e})=>e[2]};
+    border-radius: ${({borderRadius:e})=>e[2]};
+  }
+
+  :host([data-size='sm']) {
+    height: 20px;
+    padding: 0 ${({spacing:e})=>e[1]};
+    border-radius: ${({borderRadius:e})=>e[1]};
+  }
+`;var h=function(e,t,i,r){var o,a=arguments.length,l=a<3?t:null===r?r=Object.getOwnPropertyDescriptor(t,i):r;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)l=Reflect.decorate(e,t,i,r);else for(var n=e.length-1;n>=0;n--)(o=e[n])&&(l=(a<3?o(l):a>3?o(t,i,l):o(t,i))||l);return a>3&&l&&Object.defineProperty(t,i,l),l};let c=class extends r.WF{constructor(){super(...arguments),this.variant="accent",this.size="md",this.icon=void 0}render(){this.dataset.variant=this.variant,this.dataset.size=this.size;let e="md"===this.size?"md-medium":"sm-medium",t="md"===this.size?"md":"sm";return(0,r.qy)`
+      ${this.icon?(0,r.qy)`<wui-icon size=${t} name=${this.icon}></wui-icon>`:null}
+      <wui-text
+        display="inline"
+        data-variant=${this.variant}
+        variant=${e}
+        color="inherit"
+      >
+        <slot></slot>
+      </wui-text>
+    `}};c.styles=[a.W5,s],h([(0,o.MZ)()],c.prototype,"variant",void 0),h([(0,o.MZ)()],c.prototype,"size",void 0),h([(0,o.MZ)()],c.prototype,"icon",void 0),c=h([(0,l.E)("wui-tag")],c)},83447:(e,t,i)=>{var r=i(56329),o=i(34892),a=i(45594),l=i(54794),n=i(43845);let s=(0,r.AH)`
   :host {
     display: flex;
   }
