@@ -46,6 +46,7 @@ import {
   nextDuplicateStep,
   tryEnterDupCheck,
 } from "@/lib/pending-tx";
+import { PrivySignWaitNotice } from "@/components/PrivyWalletBridge";
 import { TxNotice, txMessageWithLink } from "@/components/TxNotice";
 import {
   clusterShortPl,
@@ -1046,6 +1047,7 @@ export function OverviewView() {
           </p>
         )}
 
+        <PrivySignWaitNotice className="mt-3" />
         {predca.sessionCheckMsg ? (
           <TxNotice message={predca.sessionCheckMsg} tone="pending" className="mt-3" />
         ) : null}
@@ -1366,6 +1368,7 @@ export function OverviewView() {
             {shownBuyPreview && (
               <p className="mt-3 text-[10px] text-[#8b95a8]">{shownBuyPreview}</p>
             )}
+            <PrivySignWaitNotice className="mt-3" />
             {purchaseMsg && (
               <p
                 className={`mt-3 break-all rounded border px-3 py-2 text-xs ${

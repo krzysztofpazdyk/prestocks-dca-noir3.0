@@ -98,6 +98,7 @@ import {
 } from "@/lib/buy-ata";
 import { getLocaleSnapshot } from "@/lib/locale-store";
 import { translate } from "@/lib/i18n";
+import { privySendFailureMessage } from "@/lib/privy-sign-ui";
 import { fetchJupPrices, emptyJupPrices, type JupPrices } from "@/lib/jup-prices";
 import {
   fetchPriceFeedsCached,
@@ -1401,7 +1402,10 @@ function usePredcaImpl() {
       }
       const pending = isUnconfirmedTimeout(e);
       if (!pending) {
-        reportError(parseAnchorError(e));
+        reportError(
+          privySendFailureMessage(e, getLocaleSnapshot(), isPrivy) ??
+            parseAnchorError(e),
+        );
         return null;
       }
       const signature = pending.signature;

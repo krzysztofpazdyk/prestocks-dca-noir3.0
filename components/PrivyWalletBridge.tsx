@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
@@ -24,7 +25,18 @@ import {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
+import { TxNotice } from "@/components/TxNotice";
+import { useI18n } from "@/lib/i18n";
+import { getLocaleSnapshot } from "@/lib/locale-store";
 import { PRIVY_SOLANA_CHAIN, privyAppId } from "@/lib/privy-devnet";
+import {
+  beginPrivySign,
+  endPrivySign,
+  getPrivySigningServerSnapshot,
+  getPrivySigningSnapshot,
+  privySignSuccessUi,
+  subscribePrivySigning,
+} from "@/lib/privy-sign-ui";
 import { PRIVY_WALLET_NAME } from "@/lib/privy-embedded-adapter";
 import { registerWallet } from "@/lib/privy-register-wallet";
 import {
@@ -177,18 +189,28 @@ export function PrivyWalletBridge({ children }: { children: ReactNode }) {
       signTransactionBytes: async (serialized) => {
         const wallet = embeddedRef.current;
         if (!wallet) throw new Error("Brak portfela Privy.");
-        const { signedTransaction } = await signTransactionRef.current({
-          transaction: serialized,
-          wallet,
-          chain: PRIVY_SOLANA_CHAIN,
-        });
-        if (
-          !(signedTransaction instanceof Uint8Array) ||
-          signedTransaction.byteLength === 0
-        ) {
-          throw new Error("Privy nie zwrócił podpisanej transakcji.");
+        // Success copy only. showWalletUIs stays untouched so Approve remains.
+        // Privy resolves this promise when the user closes the success screen.
+        beginPrivySign();
+        try {
+          const { signedTransaction } = await signTransactionRef.current({
+            transaction: serialized,
+            wallet,
+            chain: PRIVY_SOLANA_CHAIN,
+            options: {
+              uiOptions: privySignSuccessUi(getLocaleSnapshot()),
+            },
+          });
+          if (
+            !(signedTransaction instanceof Uint8Array) ||
+            signedTransaction.byteLength === 0
+          ) {
+            throw new Error("Privy nie zwrócił podpisanej transakcji.");
+          }
+          return signedTransaction;
+        } finally {
+          endPrivySign();
         }
-        return signedTransaction;
       },
     });
     return () => setPrivyWalletDelegate(null);
@@ -298,4 +320,18 @@ export function useKeeperSignMessage():
 
 export function privyWalletEnabled(): boolean {
   return privyAppId().length > 0;
+}
+
+/** Pending line while Privy is still holding the signature. */
+export function PrivySignWaitNotice({ className = "" }: { className?: string }) {
+  const signing = useSyncExternalStore(
+    subscribePrivySigning,
+    getPrivySigningSnapshot,
+    getPrivySigningServerSnapshot,
+  );
+  const { t } = useI18n();
+  if (!signing) return null;
+  return (
+    <TxNotice message={t("privy.signWait")} tone="pending" className={className} />
+  );
 }

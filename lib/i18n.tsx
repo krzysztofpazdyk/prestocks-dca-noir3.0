@@ -46,6 +46,13 @@ const pl: Dict = {
   "privy.connect": "Połącz portfel Privy",
   "privy.connected": "Privy {address}",
   "privy.busy": "Privy…",
+  "privy.signWait":
+    "Zatwierdź i zamknij okno Privy, żeby wysłać transakcję",
+  "privy.signSuccessHeader": "Podpisano. Kliknij Zamknij, aby wysłać.",
+  "privy.signSuccessDescription":
+    "To jeszcze nie jest wysłanie. Przycisk na dole to Close. Środki nie zostały ruszone.",
+  "privy.blockhashExpired":
+    "Transakcja nie została wysłana. Środki nie zostały ruszone. Spróbuj ponownie i szybciej zamknij okno Privy.",
 
   "overview.kicker": "Trading desk · PreStocks Weekly DCA",
   "overview.title": "Overview",
@@ -436,6 +443,13 @@ const en: Dict = {
   "privy.connect": "Connect Privy wallet",
   "privy.connected": "Privy {address}",
   "privy.busy": "Privy…",
+  "privy.signWait":
+    "Approve and close the Privy window to send the transaction",
+  "privy.signSuccessHeader": "Signed. Click Close to send.",
+  "privy.signSuccessDescription":
+    "This has not been sent yet. No funds have moved.",
+  "privy.blockhashExpired":
+    "The transaction was not sent. No funds moved. Try again and close the Privy window sooner.",
 
   "overview.kicker": "Trading desk · PreStocks Weekly DCA",
   "overview.title": "Overview",
