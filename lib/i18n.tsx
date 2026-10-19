@@ -108,6 +108,7 @@ const pl: Dict = {
   "predca.status.disconnected": "brak portfela",
   "predca.status.error": "błąd",
   "predca.lastRun": "Ostatni RunRecord on-chain",
+  "predca.runMintAddress": "Adres mintu: {mint}",
 
   "tile.sol": "SOL",
   "tile.usdcWallet": "USDC (portfel)",
@@ -586,6 +587,7 @@ const en: Dict = {
   "predca.status.disconnected": "no wallet",
   "predca.status.error": "error",
   "predca.lastRun": "Last RunRecord on-chain",
+  "predca.runMintAddress": "Mint address: {mint}",
 
   "tile.sol": "SOL",
   "tile.usdcWallet": "USDC (wallet)",
