@@ -12,12 +12,15 @@ import {
 import { translate } from "@/lib/i18n";
 import { getLocaleSnapshot, type Locale } from "@/lib/locale-store";
 import { isRateOrNetworkError, parseAnchorError } from "@/lib/predca";
+import { withTimeout } from "@/lib/rpc-timeout";
 
 /** Legacy transaction packet limit, including the signature slot. */
 export const LEGACY_TX_PACKET_BYTES = 1232;
 
 export const SIGNATURE_POLL_INTERVAL_MS = 1500;
 export const SIGNATURE_POLL_TIMEOUT_MS = 60_000;
+/** One status read. A hang counts as "still pending", same as any other read error. */
+export const SIGNATURE_STATUS_READ_TIMEOUT_MS = 10_000;
 
 export type BuySubmitPlan = "buy-only" | "combined" | "two-step";
 
@@ -199,6 +202,8 @@ export type SignaturePollOptions = {
   intervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** One `getSignatureStatuses` read. Default 10s. A timeout is "still pending". */
+  statusTimeoutMs?: number;
   /**
    * One read of logs after the signature lands with `err`.
    * A throw, null, or no recognized reason keeps the fallback message.
@@ -229,11 +234,11 @@ export async function withOneNetworkRetry<T>(
 
 /**
  * Confirm without a websocket. `getStatuses` is `getSignatureStatuses`.
- * A rate limit or a dropped connection while reading status counts as
- * "still pending" and the loop keeps going until the time limit.
- * The limit always throws `SignatureNotConfirmedError` (tracked signature).
- * Any other status-read error is thrown as-is.
- * A landed `err` throws `SignatureFailedError` and does not send again.
+ * The transaction is already sent. Every status-read error, including a
+ * timeout on that one read, counts as "still pending". The loop keeps going
+ * until the time limit, then always throws `SignatureNotConfirmedError`
+ * (tracked signature). A landed `err` throws `SignatureFailedError` and
+ * does not send again.
  */
 export async function confirmSignatureByPolling(
   getStatuses: (signature: string) => Promise<ReadonlyArray<SignatureStatusRow>>,
@@ -242,16 +247,28 @@ export async function confirmSignatureByPolling(
 ): Promise<void> {
   const timeoutMs = options.timeoutMs ?? SIGNATURE_POLL_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? SIGNATURE_POLL_INTERVAL_MS;
+  const statusTimeoutMs =
+    options.statusTimeoutMs ?? SIGNATURE_STATUS_READ_TIMEOUT_MS;
   const sleep = options.sleep ?? defaultSleep;
   const now = options.now ?? Date.now;
   const readLogs = options.readLogs;
   const started = now();
   for (;;) {
     let rows: ReadonlyArray<SignatureStatusRow> | null = null;
+    const remaining = timeoutMs - (now() - started);
+    const readBudget = Math.max(
+      0,
+      Math.min(statusTimeoutMs, Number.isFinite(remaining) ? remaining : 0),
+    );
     try {
-      rows = await getStatuses(signature);
-    } catch (err) {
-      if (!isRateOrNetworkError(err)) throw err;
+      rows = await withTimeout(
+        Promise.resolve(getStatuses(signature)),
+        readBudget,
+        "getSignatureStatuses",
+      );
+    } catch {
+      // 500, JSON-RPC "Internal error", a dropped connection, or a hung read.
+      rows = null;
     }
     const kind = classifySignatureRow(rows?.[0] ?? null);
     if (kind === "confirmed") return;

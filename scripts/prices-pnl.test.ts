@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fmtPriceClock, fmtSignedPnl, fmtUsdAmount } from "../lib/format-usd";
+import { setNumberLocaleForTests } from "../lib/number-format";
 import type { JupQuote } from "../lib/jup-prices";
 import { priceRows } from "../lib/price-rows";
 import { pnlSummary, positionPnlKind, runPnl, type PositionRow } from "../lib/position-value";
@@ -44,21 +45,34 @@ function quote(name: string, partial: Partial<JupQuote> = {}): JupQuote {
   };
 }
 
-test("fmtUsdAmount uses the locale and returns null for missing numbers", () => {
-  assert.equal(fmtUsdAmount(126.74, "pl"), "126,74 USD");
-  assert.equal(fmtUsdAmount(126.74, "en"), "126.74 USD");
+test("fmtUsdAmount follows the browser and returns null for missing numbers", () => {
+  assert.equal(fmtUsdAmount(126.74, "pl"), fmtUsdAmount(126.74, "en"));
+  assert.equal(fmtUsdAmount(126.74, "en"), "$126.74");
   assert.equal(fmtUsdAmount(null, "pl"), null);
   assert.equal(fmtUsdAmount(Number.NaN, "en"), null);
   assert.equal(fmtUsdAmount(Number.POSITIVE_INFINITY, "pl"), null);
+  setNumberLocaleForTests("pl-PL");
+  try {
+    assert.equal(fmtUsdAmount(126.74, "pl"), "$126,74");
+    assert.equal(fmtUsdAmount(126.74, "en"), "$126,74");
+  } finally {
+    setNumberLocaleForTests(null);
+  }
 });
 
 test("fmtUsdAmount signs a gain and keeps a loss", () => {
-  assert.equal(fmtUsdAmount(12.3, "pl", 2, true), "+12,30 USD");
-  assert.equal(fmtUsdAmount(-4.1, "en", 2, true), "-4.10 USD");
-  assert.equal(fmtUsdAmount(0, "pl", 2, true), "0,00 USD");
-  assert.equal(fmtSignedPnl(12.3, 4.1, "pl"), "+12,30 USD (+4,1%)");
-  assert.equal(fmtSignedPnl(-4.1, -2, "en"), "-4.10 USD (-2.0%)");
+  assert.equal(fmtUsdAmount(12.3, "pl", 2, true), "+$12.30");
+  assert.equal(fmtUsdAmount(-4.1, "en", 2, true), "-$4.10");
+  assert.equal(fmtUsdAmount(0, "pl", 2, true), "$0.00");
+  assert.equal(fmtSignedPnl(12.3, 4.1, "pl"), "+$12.30 (+4.1%)");
+  assert.equal(fmtSignedPnl(-4.1, -2, "en"), "-$4.10 (-2.0%)");
   assert.equal(fmtSignedPnl(null, 1, "pl"), null);
+  setNumberLocaleForTests("pl-PL");
+  try {
+    assert.equal(fmtSignedPnl(12.3, 4.1, "en"), "+$12,30 (+4,1%)");
+  } finally {
+    setNumberLocaleForTests(null);
+  }
 });
 
 test("legacy-only summary has no PnL and is not zero", () => {

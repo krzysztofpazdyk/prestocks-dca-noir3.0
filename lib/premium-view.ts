@@ -3,6 +3,7 @@
  */
 
 import { canonicalName, ipoPremiumPct, quoteByName, type JupPrices } from "@/lib/jup-prices";
+import { formatPercent } from "@/lib/number-format";
 import { REFERENCE_MINTS, type RankResult } from "@/lib/universe";
 
 export function livePremiumPct(name: string, prices: JupPrices): number | null {
@@ -13,15 +14,14 @@ export function livePremiumPct(name: string, prices: JupPrices): number | null {
 
 export type PremiumTone = "discount" | "premium" | "neutral";
 
-/** Locale-aware, 1 decimal, sign always: „+24,2%”, „−24,2%” (U+2212), „0,0%”. */
+/**
+ * 1 decimal, sign always: „+24.2%”, „−24.2%” (U+2212), „0.0%”.
+ * Digits follow the browser, not the PL/EN switch. `locale` stays so callers
+ * do not change; both languages share one number format.
+ */
 export function formatPremiumPct(pct: number, locale: string): string {
-  const tag = locale === "en" || locale.startsWith("en") ? "en-US" : "pl-PL";
-  const body = pct.toLocaleString(tag, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-    signDisplay: "exceptZero",
-  });
-  return `${body.replace(/-/g, "\u2212")}%`;
+  void locale;
+  return formatPercent(pct, 1);
 }
 
 /** |pct| < 0.05 (rounds to 0.0) → "at"; null/NaN → "none". */

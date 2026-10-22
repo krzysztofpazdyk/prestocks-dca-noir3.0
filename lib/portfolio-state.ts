@@ -1,4 +1,5 @@
-import { formatCount, translate } from "@/lib/i18n";
+import { translate } from "@/lib/i18n";
+import { formatDollars } from "@/lib/number-format";
 import { getLocaleSnapshot } from "@/lib/locale-store";
 import {
   HOLDINGS,
@@ -163,11 +164,8 @@ export function applyPurchase(
     const locale = getLocaleSnapshot();
     throw new Error(
       translate(locale, "msg.vaultLow", {
-        have: formatCount(locale, Number.isFinite(vaultUsdc) ? vaultUsdc : 0, {
-          min: 2,
-          max: 2,
-        }),
-        need: formatCount(locale, amountUsd, { min: 2, max: 2 }),
+        have: formatDollars(Number.isFinite(vaultUsdc) ? vaultUsdc : 0),
+        need: formatDollars(amountUsd),
       }),
     );
   }
