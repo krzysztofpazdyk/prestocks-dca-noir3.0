@@ -47,6 +47,8 @@ import {
 } from "@/lib/auto-weekly-buy";
 import { presentAutoBuyError } from "@/lib/auto-buy-error";
 import { useI18n } from "@/lib/i18n";
+import { formatDollars, formatGrouped } from "@/lib/number-format";
+import { isVaultLowReason } from "@/lib/vault-low-reason";
 import {
   commitLatestRef,
   useIsomorphicLayoutEffect,
@@ -54,9 +56,6 @@ import {
 import { usePredca } from "@/lib/hooks/usePredca";
 import { keeperEnabledForConnectedOwner } from "@/lib/keeper-enabled";
 import { unresolvedSignatureBlocksTx } from "@/lib/vault-follow-up";
-
-/** Low-vault copy in Polish, English, and sentences saved before i18n. */
-const VAULTISH_REASON = /vault|USDC|za mało|Za mało|vault_low|not enough/i;
 
 export type AutoBuyPhase =
   | "idle"
@@ -402,7 +401,10 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
         void predcaRef.current.refresh();
         const nextBuyMs = keeperNextBuyAtMs(ran) ?? Date.now() + WEEK_MS;
         setNextAt(nextBuyMs);
-        const amountLabel = (ran.amountUsd ?? amount).toFixed(2);
+        const amountLabel = formatGrouped(ran.amountUsd ?? amount, {
+          min: 2,
+          max: 2,
+        });
         const tokensLabel = (ran.names ?? []).join(" · ");
         setMessage(
           tRef.current("auto.status.okWithNext", {
@@ -427,12 +429,12 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
         writeAutoWeeklyBuy(false, cleanupOwner);
         if (statusEpochRef.current !== epoch) return;
         setPhase("error");
-        const vaultish = VAULTISH_REASON.test(reason);
+        const vaultish = isVaultLowReason(reason);
         setMessage(
           vaultish
             ? tRef.current("auto.status.vaultLow", {
                 have: "?",
-                need: amount.toFixed(2),
+                need: formatDollars(amount),
               })
             : tRef.current("auto.status.error", { reason }),
         );
@@ -543,7 +545,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
       writeAutoWeeklyBuy(false, cleanupOwner);
       if (statusEpochRef.current !== epoch) return;
       setPhase("error");
-      const vaultish = VAULTISH_REASON.test(reason);
+      const vaultish = isVaultLowReason(reason);
       setMessage(
         vaultish
           ? tRef.current("auto.status.vaultLow", {
@@ -603,7 +605,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
         if (st.amountUsd != null && st.names) {
           setMessage(
             tRef.current("auto.status.okWithNext", {
-              amount: st.amountUsd.toFixed(2),
+              amount: formatGrouped(st.amountUsd, { min: 2, max: 2 }),
               tokens: st.names.join(" · "),
               nextBuy: formatWarsawWhen(nextBuyMs, localeRef.current),
             }),
@@ -694,7 +696,7 @@ function useAutoWeeklyBuyImpl(): AutoWeeklyBuyApi {
       }
       if (st.amountUsd != null && st.names) {
         const nextBuy = nextBuyMs ?? nextAtRef.current;
-        const amountLabel = st.amountUsd.toFixed(2);
+        const amountLabel = formatGrouped(st.amountUsd, { min: 2, max: 2 });
         const tokensLabel = st.names.join(" · ");
         setMessage(
           nextBuy != null

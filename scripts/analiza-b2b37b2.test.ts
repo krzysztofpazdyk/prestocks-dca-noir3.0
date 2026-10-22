@@ -81,7 +81,8 @@ test("status reads that keep failing become an unconfirmed signature", async () 
   assert.equal(now, 3000);
 });
 
-test("a status error that is not rate or network still escapes at once", async () => {
+test("any status-read error stays pending until the limit", async () => {
+  let now = 0;
   let reads = 0;
   let slept = 0;
   await assert.rejects(
@@ -94,23 +95,29 @@ test("a status error that is not rate or network still escapes at once", async (
         SIG,
         {
           timeoutMs: 3000,
-          sleep: async () => {
+          intervalMs: 1500,
+          statusTimeoutMs: 20,
+          now: () => now,
+          sleep: async (ms) => {
             slept += 1;
+            now += ms;
           },
-          now: () => 0,
         },
       ),
     (err: unknown) => {
-      assert.equal(err instanceof SignatureNotConfirmedError, false);
-      assert.equal(err instanceof Error && err.message, "Invalid account owner");
+      assert.equal(err instanceof SignatureNotConfirmedError, true);
+      assert.equal(err instanceof SignatureFailedError, false);
+      const pending = isUnconfirmedTimeout(err);
+      assert.deepEqual(pending, { signature: SIG });
       const created = new Set<number>();
       noteUnconfirmedRunIndex(created, 4, err);
-      assert.equal(created.has(4), false);
+      assert.equal(created.has(4), true);
       return true;
     },
   );
-  assert.equal(reads, 1);
-  assert.equal(slept, 0);
+  assert.equal(reads, 3);
+  assert.equal(slept, 2);
+  assert.equal(now, 3000);
 });
 
 test("a failed signature uses Anchor logs, and keeps the old text without them", async () => {
@@ -235,20 +242,24 @@ test("transaction copy has the same keys in Polish and English", () => {
   }
   assert.equal(
     translate("pl", "tx.ok.initDeposit", { amount: formatCount("pl", 5) }),
-    "Zainicjalizowano Predca + wpłacono 5 USDC do vault.",
+    "Zainicjalizowano Predca + wpłacono $5 do vault.",
   );
   assert.equal(
     translate("pl", "tx.ok.deposit", { amount: formatCount("pl", 5) }),
-    "Wpłacono 5 USDC do vault.",
+    "Wpłacono $5 do vault.",
   );
   assert.equal(
     translate("pl", "tx.ok.withdraw", { amount: formatCount("pl", 5) }),
-    "Wypłacono 5 USDC z vault.",
+    "Wypłacono $5 z vault.",
   );
   assert.equal(translate("pl", "tx.ok.budget"), "Zapisano budżet tygodniowy on-chain.");
   assert.equal(
     translate("pl", "tx.ok.buyConfirmed", { amount: formatCount("pl", 12.5, { min: 2, max: 2 }) }),
-    "Zakup on-chain potwierdzony: $12,50 z vault.",
+    "Zakup on-chain potwierdzony: $12.50 z vault.",
+  );
+  assert.equal(
+    formatCount("pl", 12.5, { min: 2, max: 2 }),
+    formatCount("en", 12.5, { min: 2, max: 2 }),
   );
   assert.equal(translate("pl", "tx.ok.buyConfirmedShort"), "Zakup on-chain potwierdzony.");
   assert.equal(translate("pl", "tx.err.noBuyIx"), "Brak instrukcji zakupu.");
@@ -257,7 +268,7 @@ test("transaction copy has the same keys in Polish and English", () => {
     `Transakcja odrzucona przez Devnet. ${SIG}`,
   );
   assert.equal(translate("pl", "tx.err.rejectedShort"), "Transakcja odrzucona przez Devnet.");
-  assert.equal(formatCount("pl", 10.5, { min: 2, max: 2 }), "10,50");
+  assert.equal(formatCount("pl", 10.5, { min: 2, max: 2 }), "10.50");
   assert.equal(formatCount("en", 10.5, { min: 2, max: 2 }), "10.50");
   assert.equal(
     translate("pl", "tx.buyPreviewLeg", {
@@ -265,7 +276,7 @@ test("transaction copy has the same keys in Polish and English", () => {
       name: "OpenAI",
       price: formatCount("pl", 2, { min: 2, max: 2 }),
     }),
-    "≈ 1,5 OpenAI po $2,00",
+    "≈ 1.5 OpenAI po $2.00",
   );
   assert.equal(
     translate("en", "tx.buyPreviewLeg", {

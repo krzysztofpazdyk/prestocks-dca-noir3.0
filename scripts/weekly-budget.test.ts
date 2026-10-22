@@ -74,8 +74,8 @@ test("Settings keeps the draft until it parses, and Overview asks before the buy
     "Enter an amount ≥ 1 USDC, at most 2 decimals.",
   ]);
   assert.deepEqual(values("purchase.confirmBudget"), [
-    "Zmienię budżet on-chain z {from} na {to} USDC i kupię. Potwierdzić?",
-    "I'll change the on-chain budget from {from} to {to} USDC and buy. Confirm?",
+    "Zmienię budżet on-chain z {from} na {to} i kupię. Potwierdzić?",
+    "I'll change the on-chain budget from {from} to {to} and buy. Confirm?",
   ]);
   assert.deepEqual(values("btn.confirm"), ["Potwierdź", "Confirm"]);
   assert.deepEqual(values("btn.cancel"), ["Anuluj", "Cancel"]);

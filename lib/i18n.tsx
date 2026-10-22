@@ -18,6 +18,13 @@ import {
   writeStoredLocale,
   type Locale,
 } from "@/lib/locale-store";
+import {
+  NUMBER_LOCALE_FALLBACK,
+  formatGrouped,
+  readBrowserNumberLocale,
+  subscribeNumberLocale,
+  syncNumberLocale,
+} from "@/lib/number-format";
 
 export type { Locale };
 export { DEFAULT_LOCALE, LOCALE_STORAGE_KEY };
@@ -56,8 +63,8 @@ const pl: Dict = {
 
   "overview.kicker": "Trading desk · PreStocks Weekly DCA",
   "overview.title": "Overview",
-  "overview.maxDepositHint": "Maks. wpłata: {amount} USDC (saldo portfela)",
-  "overview.maxWithdrawHint": "Maks. wypłata: {amount} USDC (saldo vaulta)",
+  "overview.maxDepositHint": "Maks. wpłata: {amount} (saldo portfela)",
+  "overview.maxWithdrawHint": "Maks. wypłata: {amount} (saldo vaulta)",
   "overview.disconnectedHint":
     "Portfel odłączony — podłącz wallet, by zobaczyć salda on-chain. {cluster}.",
   "overview.noMintHint":
@@ -151,7 +158,7 @@ const pl: Dict = {
   "lastPurchase.date": "Data:",
   "lastPurchase.budget": "Budżet:",
   "lastPurchase.perToken":
-    "· po równo na 3 spółki (~${amount} USDC na każdą, liczba akcji zależy od ceny)",
+    "· po równo na 3 spółki (~${amount} na każdą, liczba akcji zależy od ceny)",
   "lastPurchase.bought": "Kupione:",
 
   "msg.noTop3Proxy": "Proxy /rank nie zwróciło top3.",
@@ -162,12 +169,12 @@ const pl: Dict = {
   "purchase.disabled.notReady": "Zakup nieaktywny — najpierw wpłać USDC na Overview (konto powstaje z wpłatą).",
   "purchase.disabled.rpcError": "Zakup nieaktywny — brak połączenia z RPC Devnet. Kliknij Odśwież.",
   "purchase.disabled.flatRanking": "Zakup nieaktywny — ranking awaryjny nie rozróżnia spółek (wszystkie 50,0). Spróbuj ponownie później albo włącz „Premia IPO ma znaczenie”.",
-  "purchase.confirmBudget": "Zmienię budżet on-chain z {from} na {to} USDC i kupię. Potwierdzić?",
-  "purchase.disabled.vaultLow": "Zakup nieaktywny — vault ma {have} USDC, potrzeba ≥ {need}. Wpłać z portfela (faucet zasila portfel, nie vault).",
+  "purchase.confirmBudget": "Zmienię budżet on-chain z {from} na {to} i kupię. Potwierdzić?",
+  "purchase.disabled.vaultLow": "Zakup nieaktywny — vault ma {have}, potrzeba ≥ {need}. Wpłać z portfela (faucet zasila portfel, nie vault).",
   "purchase.disabled.generic": "Zakup nieaktywny — sprawdź vault, ranking i status Predca.",
   "tx.recheck": "Sprawdź ponownie",
   "tx.rechecking": "Sprawdzam…",
-  "dup.warn": "Poprzednia {action} ({amount} USDC) jest jeszcze niepotwierdzona i może wejść. Wysłać drugą?",
+  "dup.warn": "Poprzednia {action} ({amount}) jest jeszcze niepotwierdzona i może wejść. Wysłać drugą?",
   "dup.sendAnyway": "Wyślij mimo to",
   "dup.action.deposit": "wpłata",
   "dup.action.withdraw": "wypłata",
@@ -186,9 +193,9 @@ const pl: Dict = {
     "Konta tokenów zostały utworzone, ale zakup nie przeszedł. Środki z vaulta nie zostały ruszone.",
   "buy.ataUnconfirmedNoBuy":
     "Konta tokenów nie zostały potwierdzone. Zakup nie został wysłany. Środki z vaulta nie zostały ruszone.",
-  "tx.ok.initDeposit": "Zainicjalizowano Predca + wpłacono {amount} USDC do vault.",
-  "tx.ok.deposit": "Wpłacono {amount} USDC do vault.",
-  "tx.ok.withdraw": "Wypłacono {amount} USDC z vault.",
+  "tx.ok.initDeposit": "Zainicjalizowano Predca + wpłacono ${amount} do vault.",
+  "tx.ok.deposit": "Wpłacono ${amount} do vault.",
+  "tx.ok.withdraw": "Wypłacono ${amount} z vault.",
   "tx.ok.budget": "Zapisano budżet tygodniowy on-chain.",
   "tx.ok.buyConfirmed": "Zakup on-chain potwierdzony: ${amount} z vault.",
   "tx.ok.buyConfirmedShort": "Zakup on-chain potwierdzony.",
@@ -293,14 +300,14 @@ const pl: Dict = {
     "Domyślnie wyłączone. Włączenie bierze kwotę z pola powyżej i od razu kupuje 3 PreStock. Ta transakcja uruchamia cotygodniowy harmonogram. Późniejszych zakupów nie musisz już potwierdzać.",
   "settings.autoWeeklyConfirmTitle": "Włączyć cotygodniowy zakup z vaulta?",
   "settings.autoWeeklyConfirmBody":
-    "Kontynuacja podzieli ${amount} USDC z vaulta po równo na 3 spółki PreStock. Dostaniesz różną liczbę akcji, zależnie od ceny każdej. Ta transakcja uruchamia cotygodniowy harmonogram. Późniejszych zakupów nie musisz już potwierdzać.",
+    "Kontynuacja podzieli ${amount} z vaulta po równo na 3 spółki PreStock. Dostaniesz różną liczbę akcji, zależnie od ceny każdej. Ta transakcja uruchamia cotygodniowy harmonogram. Późniejszych zakupów nie musisz już potwierdzać.",
   "settings.autoWeeklyConfirmOk": "Kontynuuj",
   "settings.autoWeeklyConfirmCancel": "Anuluj",
   "settings.keeperModeLive": "Tryb: Live (prawdziwe zakupy)",
   "settings.keeperModeDryRun": "Tryb: Dry-run (bez transakcji)",
   "settings.keeperModeUnknown": "Tryb keepersa: nieznany",
   "settings.weeklySplit":
-    "Po równo na 3 spółki z top-3 (~${amount} USDC na każdą; liczba akcji zależy od ceny)",
+    "Po równo na 3 spółki z top-3 (~${amount} na każdą; liczba akcji zależy od ceny)",
   "settings.onChainBudget": "· on-chain:",
   "settings.saveLocal": "Zapisz lokalnie",
   "settings.savedLocal": "Zapisano lokalnie (brak portfela)",
@@ -361,7 +368,7 @@ const pl: Dict = {
   "history.fetchError": "Nie udało się pobrać historii",
   "history.staleRuns": "Ostatni odczyt — RPC niedostępne, dane mogą być nieaktualne.",
   "history.loading": "Ładowanie historii on-chain…",
-  "history.runMeta": "Run #{index} · budżet ~${budget} · slot {slot}",
+  "history.runMeta": "Run #{index} · budżet ~{budget} · slot {slot}",
   "history.runMetaUnknown": "Run #{index} · budżet {unknown} · slot {slot}",
   "history.buyPrice": "po {price} · {units} szt.",
   "history.legPnl": "teraz {value} · {pnl}",
@@ -535,8 +542,8 @@ const en: Dict = {
 
   "overview.kicker": "Trading desk · PreStocks Weekly DCA",
   "overview.title": "Overview",
-  "overview.maxDepositHint": "Max deposit: {amount} USDC (wallet balance)",
-  "overview.maxWithdrawHint": "Max withdraw: {amount} USDC (vault balance)",
+  "overview.maxDepositHint": "Max deposit: {amount} (wallet balance)",
+  "overview.maxWithdrawHint": "Max withdraw: {amount} (vault balance)",
   "overview.disconnectedHint":
     "Wallet disconnected — connect to see on-chain balances. {cluster}.",
   "overview.noMintHint":
@@ -630,7 +637,7 @@ const en: Dict = {
   "lastPurchase.date": "Date:",
   "lastPurchase.budget": "Budget:",
   "lastPurchase.perToken":
-    "· split equally across 3 companies (~${amount} USDC each; share count depends on price)",
+    "· split equally across 3 companies (~${amount} each; share count depends on price)",
   "lastPurchase.bought": "Bought:",
 
   "msg.noTop3Proxy": "Proxy /rank returned no top3.",
@@ -641,12 +648,12 @@ const en: Dict = {
   "purchase.disabled.notReady": "Purchase disabled — deposit USDC on Overview first (the account is created with that deposit).",
   "purchase.disabled.rpcError": "Purchase disabled — no Devnet RPC connection. Click Refresh.",
   "purchase.disabled.flatRanking": "Purchase disabled — the backup ranking can't tell names apart (all 50.0). Try again later or turn on “IPO premium matters”.",
-  "purchase.confirmBudget": "I'll change the on-chain budget from {from} to {to} USDC and buy. Confirm?",
-  "purchase.disabled.vaultLow": "Purchase disabled — vault has {have} USDC, need ≥ {need}. Deposit from wallet (faucet fills wallet, not vault).",
+  "purchase.confirmBudget": "I'll change the on-chain budget from {from} to {to} and buy. Confirm?",
+  "purchase.disabled.vaultLow": "Purchase disabled — vault has {have}, need ≥ {need}. Deposit from wallet (faucet fills wallet, not vault).",
   "purchase.disabled.generic": "Purchase disabled — check vault, ranking, and Predca status.",
   "tx.recheck": "Check again",
   "tx.rechecking": "Checking…",
-  "dup.warn": "The previous {action} ({amount} USDC) is still unconfirmed and may land. Send another?",
+  "dup.warn": "The previous {action} ({amount}) is still unconfirmed and may land. Send another?",
   "dup.sendAnyway": "Send anyway",
   "dup.action.deposit": "deposit",
   "dup.action.withdraw": "withdrawal",
@@ -665,9 +672,9 @@ const en: Dict = {
     "Token accounts were created, but the purchase did not go through. Vault funds were not touched.",
   "buy.ataUnconfirmedNoBuy":
     "Token accounts were not confirmed. The purchase was not sent. Vault funds were not touched.",
-  "tx.ok.initDeposit": "Initialized Predca and deposited {amount} USDC into the vault.",
-  "tx.ok.deposit": "Deposited {amount} USDC into the vault.",
-  "tx.ok.withdraw": "Withdrew {amount} USDC from the vault.",
+  "tx.ok.initDeposit": "Initialized Predca and deposited ${amount} into the vault.",
+  "tx.ok.deposit": "Deposited ${amount} into the vault.",
+  "tx.ok.withdraw": "Withdrew ${amount} from the vault.",
   "tx.ok.budget": "Saved the weekly budget on-chain.",
   "tx.ok.buyConfirmed": "On-chain purchase confirmed: ${amount} from the vault.",
   "tx.ok.buyConfirmedShort": "On-chain purchase confirmed.",
@@ -772,14 +779,14 @@ const en: Dict = {
     "Off by default. Enabling takes the amount above and immediately buys 3 PreStocks. That transaction starts the weekly schedule. You will not need to confirm later purchases.",
   "settings.autoWeeklyConfirmTitle": "Enable weekly vault purchases?",
   "settings.autoWeeklyConfirmBody":
-    "Continuing will split ${amount} USDC from the vault equally across 3 PreStock companies. You will receive a different number of shares depending on each price. This transaction starts the weekly schedule. You will not need to confirm later purchases.",
+    "Continuing will split ${amount} from the vault equally across 3 PreStock companies. You will receive a different number of shares depending on each price. This transaction starts the weekly schedule. You will not need to confirm later purchases.",
   "settings.autoWeeklyConfirmOk": "Continue",
   "settings.autoWeeklyConfirmCancel": "Cancel",
   "settings.keeperModeLive": "Mode: Live (real buys)",
   "settings.keeperModeDryRun": "Mode: Dry-run (no transactions)",
   "settings.keeperModeUnknown": "Keeper mode: unknown",
   "settings.weeklySplit":
-    "Split equally across 3 top-3 companies (~${amount} USDC each; share count depends on price)",
+    "Split equally across 3 top-3 companies (~${amount} each; share count depends on price)",
   "settings.onChainBudget": "· on-chain:",
   "settings.saveLocal": "Save locally",
   "settings.savedLocal": "Saved locally (no wallet)",
@@ -840,7 +847,7 @@ const en: Dict = {
   "history.fetchError": "Couldn't load history",
   "history.staleRuns": "Last read — RPC unavailable, data may be stale.",
   "history.loading": "Loading on-chain history…",
-  "history.runMeta": "Run #{index} · budget ~${budget} · slot {slot}",
+  "history.runMeta": "Run #{index} · budget ~{budget} · slot {slot}",
   "history.runMetaUnknown": "Run #{index} · budget {unknown} · slot {slot}",
   "history.buyPrice": "at {price} · {units} units",
   "history.legPnl": "now {value} · {pnl}",
@@ -1008,19 +1015,18 @@ export function shown(key: string, vars?: Vars): string {
   return translate(getLocaleSnapshot(), key, vars);
 }
 
-/** Amounts in transaction toasts. Digits follow the active language. */
+/**
+ * Plain digits (no "$"). The browser locale picks separators; the PL/EN
+ * switch does not. `locale` stays so existing callers keep compiling.
+ */
 export function formatCount(
   locale: Locale,
   amount: number,
   opts?: { min?: number; max?: number },
 ): string {
+  void locale;
   if (!Number.isFinite(amount)) return "";
-  const tag = locale === "en" ? "en-US" : "pl-PL";
-  const options: Intl.NumberFormatOptions = {
-    maximumFractionDigits: opts?.max ?? 6,
-  };
-  if (opts?.min != null) options.minimumFractionDigits = opts.min;
-  return amount.toLocaleString(tag, options);
+  return formatGrouped(amount, { min: opts?.min, max: opts?.max ?? 6 });
 }
 
 type I18nContextValue = {
@@ -1039,6 +1045,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     getLocaleSnapshot,
     getLocaleServerSnapshot,
   );
+  // Hydration uses en-US. The client snapshot then switches to the browser.
+  const browserNumbers = useSyncExternalStore(
+    subscribeNumberLocale,
+    readBrowserNumberLocale,
+    () => NUMBER_LOCALE_FALLBACK,
+  );
+  syncNumberLocale(browserNumbers);
 
   useEffect(() => {
     document.documentElement.lang = locale;

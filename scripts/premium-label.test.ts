@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { setNumberLocaleForTests } from "../lib/number-format";
 import {
   formatPremiumPct,
   PREMIUM_TONE_CLASS,
@@ -15,13 +16,20 @@ function values(src: string, key: string): string[] {
 }
 
 test("formatPremiumPct keeps the sign and one decimal", () => {
-  assert.equal(formatPremiumPct(24.2, "pl"), "+24,2%");
-  assert.equal(formatPremiumPct(-24.2, "pl"), "\u221224,2%");
-  assert.equal(formatPremiumPct(0, "pl"), "0,0%");
-  assert.equal(formatPremiumPct(0.04, "pl"), "0,0%");
+  assert.equal(formatPremiumPct(24.2, "pl"), formatPremiumPct(24.2, "en"));
   assert.equal(formatPremiumPct(24.2, "en"), "+24.2%");
   assert.equal(formatPremiumPct(-24.2, "en"), "\u221224.2%");
   assert.equal(formatPremiumPct(0, "en"), "0.0%");
+  assert.equal(formatPremiumPct(0.04, "pl"), "0.0%");
+  setNumberLocaleForTests("pl-PL");
+  try {
+    assert.equal(formatPremiumPct(24.2, "pl"), "+24,2%");
+    assert.equal(formatPremiumPct(-24.2, "en"), "\u221224,2%");
+    assert.equal(formatPremiumPct(0, "pl"), "0,0%");
+    assert.equal(formatPremiumPct(0.04, "en"), "0,0%");
+  } finally {
+    setNumberLocaleForTests(null);
+  }
 });
 
 test("premiumKind and premiumTone follow the buyer view", () => {

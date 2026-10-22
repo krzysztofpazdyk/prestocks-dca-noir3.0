@@ -5,6 +5,12 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { claimFaucetUsdc } from "@/lib/dca-api";
 import { HoldingsPie } from "./HoldingsPie";
 import { fmtPriceClock, fmtSignedPnl, fmtUsdAmount } from "@/lib/format-usd";
+import { formatDollars, formatGrouped } from "@/lib/number-format";
+import {
+  purchaseMsgClass,
+  purchaseMsgTone,
+} from "@/lib/purchase-msg-tone";
+import { renderPurchaseNotice, type PurchaseNotice } from "@/lib/purchase-notice";
 import {
   canonicalName,
   isLowLiquidity,
@@ -168,6 +174,23 @@ export function OverviewView() {
   const [rankError, setRankError] = useState<string | null>(null);
   const [purchaseMsg, setPurchaseMsg] = useState<string | null>(null);
   const [purchaseTone, setPurchaseTone] = useState<"ok" | "fail" | "pending">("ok");
+  const [purchaseNotice, setPurchaseNotice] = useState<
+    (PurchaseNotice & { expectMsg: string | null }) | null
+  >(null);
+  /**
+   * handlePurchase stores a translation key. The verdict effect below still
+   * writes a finished sentence with the real setPurchaseMsg. The key stays
+   * visible only while purchaseMsg is still the anchor this handler wrote.
+   * A later effect write (a different string, including null) wins.
+   */
+  function showPurchase(notice: PurchaseNotice | null, anchor: string | null = null) {
+    if (notice == null) {
+      setPurchaseNotice(null);
+      return;
+    }
+    setPurchaseMsg(anchor);
+    setPurchaseNotice({ ...notice, expectMsg: anchor });
+  }
   const [buyPreview, setBuyPreview] = useState<string | null>(null);
   /** Sync lock across setWeeklyBudget and simulateBuy. A second Kup returns immediately. */
   const buyInFlightRef = useRef(false);
@@ -313,6 +336,7 @@ export function OverviewView() {
 
   async function handleGenerateRecommendations() {
     setRankError(null);
+    showPurchase(null);
     setPurchaseMsg(null);
     setRankBusy(true);
     try {
@@ -351,9 +375,9 @@ export function OverviewView() {
   function markPendingPurchase(): boolean {
     const sig = predca.pendingSignatureNow();
     if (!sig) return false;
-    setPurchaseMsg(
-      t("msg.purchasePending", { sig, url: explorerTxUrl(sig) }),
-    );
+    const url = explorerTxUrl(sig);
+    const text = t("msg.purchasePending", { sig, url });
+    showPurchase({ key: "msg.purchasePending", vars: { sig, url } }, text);
     setPurchaseTone("pending");
     return true;
   }
@@ -443,7 +467,7 @@ export function OverviewView() {
           : t("dup.action.deposit");
     return (
       <div className="mt-2 rounded border border-[#fbbf2433] bg-[#fbbf2411] px-3 py-2 text-xs text-[#fbbf24]">
-        <p>{t("dup.warn", { action, amount })}</p>
+        <p>{t("dup.warn", { action, amount: formatDollars(amount) })}</p>
         <button
           type="button"
           disabled={dupChecking || predca.rechecking}
@@ -528,7 +552,8 @@ export function OverviewView() {
     try {
       setPurchaseTone("ok");
       if (top3.length === 0) {
-        setPurchaseMsg(t("msg.noRecs"));
+        setPurchaseTone("fail");
+        showPurchase({ key: "msg.noRecs" });
         return;
       }
 
@@ -543,27 +568,31 @@ export function OverviewView() {
           !Number.isFinite(availableVaultUsdc) ||
           availableVaultUsdc < intendedAmount
         ) {
-          setPurchaseMsg(
-            t("msg.vaultLowOnChain", {
-              have: (availableVaultUsdc ?? 0).toFixed(2),
-              need: intendedAmount.toFixed(2),
-            }),
-          );
+          setPurchaseTone("fail");
+          showPurchase({
+            key: "msg.vaultLowOnChain",
+            vars: {
+              have: formatDollars(availableVaultUsdc ?? 0),
+              need: formatDollars(intendedAmount),
+            },
+          });
           return;
         }
 
         // simulate_buy_v2 spends on-chain weeklyBudgetUsdc — sync LS → chain first.
         const lsAmount = readWeeklyBudgetUsd(DEFAULT_SETTINGS.weeklyAmountUsd, ownerBase58);
         if (budgetsDiffer(lsAmount, predca.weeklyBudgetUsd)) {
-          setPurchaseMsg(t("msg.updatingBudget"));
+          setPurchaseTone("pending");
+          showPurchase({ key: "msg.updatingBudget" });
           const budgetSig = await predca.setWeeklyBudget(lsAmount);
           if (!budgetSig) {
             if (markPendingPurchase()) return;
             const err = predca.lastTxError();
             if (err) {
-              setPurchaseMsg(`${t("msg.budgetSyncFail")}: ${err}`);
               setPurchaseTone("fail");
+              showPurchase({ key: "msg.budgetSyncFail", detail: err });
             } else {
+              showPurchase(null);
               setPurchaseMsg(null);
             }
             return;
@@ -571,21 +600,25 @@ export function OverviewView() {
           // setWeeklyBudget's withTx already refreshed; simulateBuy re-fetches budget.
         }
 
+        showPurchase(null);
         setPurchaseMsg(null);
         const sig = await predca.simulateBuy(tokenNames);
         if (sig) {
           setPurchaseTone("ok");
-          const okText = t("msg.purchaseOk", {
-            sig: sig.slice(0, 8),
-            amount: intendedAmount.toFixed(2),
-            tokens: tokenNames.join(" · "),
+          showPurchase({
+            key: "msg.purchaseOk",
+            vars: {
+              sig: sig.slice(0, 8),
+              amount: formatGrouped(intendedAmount, { min: 2, max: 2 }),
+              tokens: tokenNames.join(" · "),
+            },
+            withPreview: buyPreview != null,
           });
-          setPurchaseMsg(buyPreview ? `${okText} ${buyPreview}` : okText);
         } else if (!markPendingPurchase()) {
           const err = predca.lastTxError();
           if (err) {
-            setPurchaseMsg(`${t("msg.purchaseFail")}: ${err}`);
             setPurchaseTone("fail");
+            showPurchase({ key: "msg.purchaseFail", detail: err });
           }
         }
         return;
@@ -666,9 +699,7 @@ export function OverviewView() {
           legs: legs
             .map((leg) =>
               t("buy.previewLeg", {
-                tokens: leg.tokens.toLocaleString(locale === "pl" ? "pl-PL" : "en-US", {
-                  maximumFractionDigits: 6,
-                }),
+                tokens: formatGrouped(leg.tokens, { max: 6 }),
                 name: leg.name,
                 price: fmtUsdAmount(leg.priceUsd, locale) ?? "",
               }),
@@ -726,8 +757,8 @@ export function OverviewView() {
     if (key === "purchase.disabled.noRecs") return t("purchase.disabled.noRecs");
     if (key === "purchase.disabled.vaultLow") {
       return t("purchase.disabled.vaultLow", {
-        have: (availableVaultUsdc ?? 0).toFixed(2),
-        need: purchaseAmount.toFixed(2),
+        have: formatDollars(availableVaultUsdc ?? 0),
+        need: formatDollars(purchaseAmount),
       });
     }
     return t(key);
@@ -735,10 +766,12 @@ export function OverviewView() {
 
   function fmtTile(value: number | null, digits = 2): string {
     if (value == null || !Number.isFinite(value)) return "—";
-    return value.toLocaleString(locale === "en" ? "en-US" : "pl-PL", {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    });
+    return formatGrouped(value, { min: digits, max: digits });
+  }
+
+  function fmtMoney(value: number | null, digits = 2): string {
+    if (value == null || !Number.isFinite(value)) return "—";
+    return formatDollars(value, digits);
   }
 
   function premiumText(name: string): {
@@ -793,6 +826,19 @@ export function OverviewView() {
         : predca.status === "disconnected"
           ? t("predca.status.disconnected")
           : t("predca.status.error");
+
+  const purchaseFromNotice =
+    purchaseNotice != null && purchaseMsg === purchaseNotice.expectMsg;
+  const purchaseText = purchaseFromNotice
+    ? renderPurchaseNotice(
+        purchaseNotice,
+        t,
+        purchaseNotice.withPreview ? shownBuyPreview : null,
+      )
+    : purchaseMsg;
+  const purchaseClass = purchaseMsgClass(
+    purchaseMsgTone(purchaseTone, purchaseText ?? ""),
+  );
 
   return (
     <div className="space-y-5">
@@ -880,8 +926,8 @@ export function OverviewView() {
             }
             unit={
               budgetDirty && predca.weeklyBudgetUsd != null
-                ? `USDC · chain ${formatUsd(predca.weeklyBudgetUsd)}`
-                : "USDC"
+                ? `chain ${formatUsd(predca.weeklyBudgetUsd)}`
+                : ""
             }
           />
           <Stat
@@ -889,8 +935,8 @@ export function OverviewView() {
             value={vaultStat != null ? formatUsd(vaultStat) : "—"}
             unit={
               predca.status === "error" && predca.vaultUsdc != null
-                ? `USDC · ${t("overview.rpcStale")}`
-                : "USDC"
+                ? t("overview.rpcStale")
+                : ""
             }
           />
           {depositPresentation !== "hidden" && (
@@ -1104,10 +1150,7 @@ export function OverviewView() {
                 {t("predca.initBudget")}
               </span>
               <p className="mono-num text-sm text-[#2dd4bf]">
-                {formatUsd(purchaseAmount)}{" "}
-                <span className="text-[10px] uppercase tracking-wider text-[#8b95a8]">
-                  USDC
-                </span>
+                {formatUsd(purchaseAmount)}
               </p>
             </div>
             <p className="w-full text-[10px] text-[#fbbf24]">
@@ -1141,10 +1184,7 @@ export function OverviewView() {
                 );
                 const slot = fill?.slots?.[i] ?? null;
                 const tokens = rawToDollars(predca.lastRun!.amounts[i]);
-                const tokenText = tokens.toLocaleString(
-                  locale === "pl" ? "pl-PL" : "en-US",
-                  { maximumFractionDigits: 6 },
-                );
+                const tokenText = formatGrouped(tokens, { max: 6 });
                 return (
                 <li
                   key={i}
@@ -1152,7 +1192,7 @@ export function OverviewView() {
                   className="rounded border border-[#1e2633] bg-[#0c0e12] px-2 py-1.5 mono-num"
                 >
                   {mintLabel(m)} · {tokenText}
-                  {slot ? ` · $${formatUsd(slot.price)}` : ""}
+                  {slot ? ` · ${formatUsd(slot.price)}` : ""}
                 </li>
                 );
               })}
@@ -1170,15 +1210,15 @@ export function OverviewView() {
           },
           {
             label: t("tile.usdcWallet"),
-            value: fmtTile(displayOwnerUsdc),
-            unit: "USDC",
+            value: fmtMoney(displayOwnerUsdc),
+            unit: "",
           },
           {
             label: t("tile.portfolioPreStock"),
             value: portfolioUnknown
               ? t("runPrice.unknown")
-              : fmtTile(displayPortfolioUsd, 0),
-            unit: "USD",
+              : fmtMoney(displayPortfolioUsd, 0),
+            unit: "",
           },
         ].map((c) => (
           <div
@@ -1190,7 +1230,9 @@ export function OverviewView() {
             </p>
             <p className="mono-num mt-2 text-2xl text-[#2dd4bf]">
               {c.value}
-              <span className="ml-1 text-xs text-[#8b95a8]">{c.unit}</span>
+              {c.unit ? (
+                <span className="ml-1 text-xs text-[#8b95a8]">{c.unit}</span>
+              ) : null}
             </p>
           </div>
         ))}
@@ -1311,7 +1353,7 @@ export function OverviewView() {
                       {r.name}
                     </span>
                     <span className="mono-num text-sm text-[#a78bfa]">
-                      {r.score.toFixed(1)}
+                      {formatGrouped(r.score, { min: 1, max: 1 })}
                     </span>
                   </div>
                   <p className="mt-1 text-[10px] text-[#8b95a8]">
@@ -1344,7 +1386,7 @@ export function OverviewView() {
             {rankError && (
               <p className="mt-3 text-xs text-[#f87171]">{rankError}</p>
             )}
-            {purchaseDisabledReason && !purchaseMsg && (
+            {purchaseDisabledReason && !purchaseText && (
               <p className="mt-3 rounded border border-[#fbbf2433] bg-[#fbbf2411] px-3 py-2 text-xs text-[#fbbf24]">
                 {purchaseDisabledReason}
               </p>
@@ -1381,17 +1423,11 @@ export function OverviewView() {
               <p className="mt-3 text-[10px] text-[#8b95a8]">{shownBuyPreview}</p>
             )}
             <PrivySignWaitNotice className="mt-3" />
-            {purchaseMsg && (
+            {purchaseText && (
               <p
-                className={`mt-3 break-all rounded border px-3 py-2 text-xs ${
-                  purchaseTone === "pending"
-                    ? "border-[#fbbf2433] bg-[#fbbf2411] text-[#fbbf24]"
-                    : /nieudany|failed|Could not|Nie udało/i.test(purchaseMsg)
-                      ? "border-[#f8717133] bg-[#f8717111] text-[#fca5a5]"
-                      : "border-[#2dd4bf33] bg-[#2dd4bf11] text-[#2dd4bf]"
-                }`}
+                className={`mt-3 break-all rounded border px-3 py-2 text-xs ${purchaseClass}`}
               >
-                {txMessageWithLink(purchaseMsg)}
+                {txMessageWithLink(purchaseText)}
               </p>
             )}
           </section>
@@ -1426,12 +1462,15 @@ export function OverviewView() {
                     ) : (
                       <>
                         <span className="mono-num text-[#2dd4bf]">
-                          ${displayLastPurchase.amountUsd.toFixed(2)}
+                          {formatDollars(displayLastPurchase.amountUsd)}
                         </span>
                         <span className="text-[#8b95a8]">
                           {" "}
                           {t("lastPurchase.perToken", {
-                            amount: Number(displayLastPurchase.perTokenUsd).toFixed(2),
+                            amount: formatGrouped(
+                              Number(displayLastPurchase.perTokenUsd),
+                              { min: 2, max: 2 },
+                            ),
                           })}
                         </span>
                       </>
@@ -1446,10 +1485,7 @@ export function OverviewView() {
                       .map((name, i) => {
                         const amt = displayLastPurchase.tokenAmounts?.[i];
                         if (amt == null || !Number.isFinite(amt)) return name;
-                        const text = amt.toLocaleString(
-                          locale === "pl" ? "pl-PL" : "en-US",
-                          { maximumFractionDigits: 6 },
-                        );
+                        const text = formatGrouped(amt, { max: 6 });
                         return `${name} × ${text}`;
                       })
                       .join(" · ")}

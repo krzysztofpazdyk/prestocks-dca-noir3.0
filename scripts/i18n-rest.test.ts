@@ -14,6 +14,7 @@ import {
   parseAnchorError,
 } from "../lib/predca";
 import { isOnChainSignatureReject } from "../lib/vault-follow-up";
+import { isVaultLowReason } from "../lib/vault-low-reason";
 
 const NEW_KEYS = [
   "tx.priorSession",
@@ -170,11 +171,11 @@ test("Polish sentences stay word for word, including vault, prior session, and p
 });
 
 test("purchase tone, vault-low, rejection, and a taken run index match Polish, English, and old text", () => {
-  const overview = readFileSync(
-    new URL("../components/OverviewView.tsx", import.meta.url),
+  const toneSrcFile = readFileSync(
+    new URL("../lib/purchase-msg-tone.ts", import.meta.url),
     "utf8",
   );
-  const toneSrc = overview.match(/\/(nieudany\|failed\|Could not\|Nie udało)\/i/);
+  const toneSrc = toneSrcFile.match(/\/(nieudany\|failed\|Could not\|Nie udało)\/i/);
   assert.ok(toneSrc);
   const tone = new RegExp(toneSrc[1], "i");
   assert.match(translate("pl", "msg.purchaseFail"), tone);
@@ -186,14 +187,11 @@ test("purchase tone, vault-low, rejection, and a taken run index match Polish, E
     new URL("../lib/hooks/useAutoWeeklyBuy.tsx", import.meta.url),
     "utf8",
   );
-  assert.equal((hook.match(/VAULTISH_REASON\.test/g) ?? []).length, 2);
-  const vaultSrc = hook.match(/const VAULTISH_REASON = \/(.+)\/i;/);
-  assert.ok(vaultSrc);
-  const vaultish = new RegExp(vaultSrc[1], "i");
-  assert.match("Za mało USDC w vault: 1 < 2.", vaultish);
-  assert.match("Not enough USDC in the vault: 1 < 2.", vaultish);
-  assert.match("vault_low", vaultish);
-  assert.doesNotMatch("network timeout", vaultish);
+  assert.equal((hook.match(/isVaultLowReason\(/g) ?? []).length, 2);
+  assert.equal(isVaultLowReason("Za mało USDC w vault: 1 < 2."), true);
+  assert.equal(isVaultLowReason("Not enough USDC in the vault: 1 < 2."), true);
+  assert.equal(isVaultLowReason("vault_low"), true);
+  assert.equal(isVaultLowReason("network timeout"), false);
 
   const oldReject = new Error("Transakcja odrzucona przez Devnet. SIG");
   const enReject = new Error(translate("en", "tx.err.rejected", { signature: "SIG" }));

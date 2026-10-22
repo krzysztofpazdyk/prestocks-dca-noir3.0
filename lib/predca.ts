@@ -21,6 +21,7 @@ import {
   withTimeout,
 } from "@/lib/rpc-timeout";
 import { shown, translate } from "@/lib/i18n";
+import { formatDollars } from "@/lib/number-format";
 import { textKeepingSignature } from "@/lib/vault-follow-up";
 
 export const DEFAULT_PROGRAM_ID =
@@ -223,10 +224,7 @@ export function rawToDollars(raw: BN | number | string | bigint): number {
 }
 
 export function formatUsd(amount: number, digits = 2): string {
-  return amount.toLocaleString("pl-PL", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  return formatDollars(amount, digits);
 }
 
 export function ownerUsdcAta(owner: PublicKey, mint: PublicKey): PublicKey {

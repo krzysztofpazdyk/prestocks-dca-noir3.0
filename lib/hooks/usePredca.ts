@@ -97,6 +97,7 @@ import {
 } from "@/lib/buy-ata";
 import { getLocaleSnapshot, type Locale } from "@/lib/locale-store";
 import { formatCount, shown, translate } from "@/lib/i18n";
+import { formatDollars } from "@/lib/number-format";
 import { privySendFailureMessage } from "@/lib/privy-sign-ui";
 import { fetchJupPrices, emptyJupPrices, type JupPrices } from "@/lib/jup-prices";
 import {
@@ -286,7 +287,7 @@ function priorSessionOk(rec: PendingTxRecord): string {
   const short = `${rec.signature.slice(0, 4)}…${rec.signature.slice(-4)}`;
   const tail =
     rec.amountUsd != null
-      ? `${formatCount(locale, rec.amountUsd)} USDC · ${short}`
+      ? `${formatDollars(rec.amountUsd)} · ${short}`
       : short;
   return translate(locale, "tx.priorSession", {
     kind: pendingKindLabel(locale, rec.kind),
@@ -1815,8 +1816,8 @@ function usePredcaImpl() {
         const locale = getLocaleSnapshot();
         reportError(
           translate(locale, "msg.vaultLowOnChain", {
-            have: formatCount(locale, vaultNow ?? 0, { min: 2, max: 2 }),
-            need: formatCount(locale, totalDebit, { min: 2, max: 2 }),
+            have: formatDollars(vaultNow ?? 0),
+            need: formatDollars(totalDebit),
           }),
         );
         return null;

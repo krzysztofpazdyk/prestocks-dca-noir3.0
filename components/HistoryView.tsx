@@ -12,6 +12,7 @@ import {
   type RunRecordData,
 } from "@/lib/predca";
 import { fmtSignedPnl, fmtUsdAmount } from "@/lib/format-usd";
+import { formatGrouped } from "@/lib/number-format";
 import { runPnl } from "@/lib/position-value";
 import { historyBudgetUsd, historyLegUsd, historyView } from "@/lib/history-view";
 import { useI18n } from "@/lib/i18n";
@@ -28,7 +29,7 @@ function runBudgetUsd(
 }
 
 function fmtUnits(n: number): string {
-  return n.toLocaleString("pl-PL", { maximumFractionDigits: 6 });
+  return formatGrouped(n, { max: 6 });
 }
 
 export function HistoryView() {
@@ -183,7 +184,7 @@ export function HistoryView() {
                       <span className="mono-num ml-2 text-[#8b95a8]">
                         {usdcEach[i] == null
                           ? t("runPrice.unknown")
-                          : `$${formatUsd(usdcEach[i])}`}
+                          : formatUsd(usdcEach[i])}
                       </span>
                       {slot ? (
                         <span className="mono-num mt-0.5 block text-[10px] text-[#8b95a8]">

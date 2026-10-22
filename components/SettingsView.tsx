@@ -21,6 +21,7 @@ import { DEFAULT_SETTINGS } from "@/lib/mock-data";
 import { usePredca } from "@/lib/hooks/usePredca";
 import { TxNotice } from "@/components/TxNotice";
 import { explorerTxUrl, formatUsd } from "@/lib/predca";
+import { formatGrouped } from "@/lib/number-format";
 import { UNRESOLVED_MSG } from "@/lib/pending-tx";
 import { presentAutoBuyError } from "@/lib/auto-buy-error";
 import { autoToggleBlocked } from "@/lib/auto-weekly-buy";
@@ -641,7 +642,9 @@ export function SettingsView() {
             <p className="text-xs text-[#fbbf24]">{t("settings.weeklyInvalid")}</p>
           )}
           <p className="text-xs text-[#8b95a8]">
-            {t("settings.weeklySplit", { amount: (weekly / 3).toFixed(2) })}
+            {t("settings.weeklySplit", {
+              amount: formatGrouped(weekly / 3, { min: 2, max: 2 }),
+            })}
             {" "}
             {t("settings.weeklyAtEnable")}
             {onChainWeekly != null && (
@@ -649,7 +652,7 @@ export function SettingsView() {
                 {" "}
                 {t("settings.onChainBudget")}{" "}
                 <span className="mono-num text-[#2dd4bf]">
-                  {formatUsd(onChainWeekly)} USDC
+                  {formatUsd(onChainWeekly)}
                 </span>
               </>
             )}
@@ -758,8 +761,8 @@ export function SettingsView() {
             </h2>
             <p className="mt-3 text-sm leading-relaxed text-[#c5cedb] text-justify">
               {t("settings.autoWeeklyConfirmBody", {
-                amount: weekly.toFixed(2),
-                each: (weekly / 3).toFixed(2),
+                amount: formatGrouped(weekly, { min: 2, max: 2 }),
+                each: formatGrouped(weekly / 3, { min: 2, max: 2 }),
               })}
             </p>
             <div className="mt-5 flex flex-wrap justify-end gap-2">

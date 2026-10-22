@@ -31,7 +31,7 @@ const PREDCA_NAME_TO_CODE: Record<string, number> = {
 const STATUS_ERROR_PREFIXES = ["Auto-zakup nieudany:", "Auto-buy failed:"];
 
 const TECHNICAL_RE =
-  /custom program error|simulation failed|error number:|error code:|anchorerror|program log|0x[0-9a-f]+|blockhash|insufficient|slippage|timed?\s*out|timeout|econn|enotfound|failed to fetch|fetch failed|network request failed|sign_rejected|signature_rejected|user rejected|podpis odrzucony|http_\d+|enable_failed|enable_timeout|keeper_unreachable|\{\s*"|\blog:|instruction \d|json-rpc|transaction expired|block height exceeded|disable failed|purchase skipped|without a completed purchase/i;
+  /custom program error|simulation failed|error number:|error code:|anchorerror|program log|0x[0-9a-f]+|blockhash|insufficient|slippage|timed?\s*out|timeout|econn|enotfound|failed to fetch|fetch failed|network request failed|sign_rejected|signature_rejected|signature rejected|user rejected|podpis odrzucony|http_\d+|enable_failed|enable_timeout|keeper_unreachable|\{\s*"|\blog:|instruction \d|json-rpc|transaction expired|block height exceeded|disable failed|purchase skipped|without a completed purchase/i;
 
 function translator(langOrT: Locale | AutoBuyErrorT): AutoBuyErrorT {
   if (typeof langOrT === "function") return langOrT;
@@ -69,7 +69,7 @@ function predcaCode(raw: string): number | null {
 }
 
 function isUserRejected(raw: string): boolean {
-  return /user rejected|rejected the request|user denied|user cancel(?:ed|led)|sign_rejected|signature_rejected|podpis odrzucony/i.test(
+  return /user rejected|rejected the request|user denied|user cancel(?:ed|led)|sign_rejected|signature_rejected|signature rejected|podpis odrzucony/i.test(
     raw,
   );
 }
